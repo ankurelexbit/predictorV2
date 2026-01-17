@@ -21,7 +21,7 @@ football_prediction/
 └── data/                      # Local data storage
     ├── raw/                   # Raw downloaded data
     ├── processed/             # Cleaned data
-    └── football.db            # SQLite database
+    └── processed/             # Processed data files
 ```
 
 ## Setup Instructions
@@ -38,12 +38,31 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 3. Configure API Keys
+### 3. Set up Supabase Database
+1. Create a free Supabase account at https://supabase.com
+2. Create a new project
+3. Go to Settings > Database to get your connection details
+4. Set up your database credentials in `config.py` or as environment variables:
+   ```bash
+   export SUPABASE_DB_HOST=db.xxxxxxxxxxxxxxxxxxxx.supabase.co
+   export SUPABASE_DB_PASSWORD=your_database_password
+   # Or set the full DATABASE_URL
+   export DATABASE_URL=postgresql://postgres.[project-ref]:[password]@[host]:5432/postgres
+   ```
+
+### 4. Configure API Keys
 Edit `config.py` and add your API keys:
 - Football-Data.org (free tier available)
 - API-Football (free tier: 100 requests/day)
 
-### 4. Run Notebooks in Order
+### 5. Test Database Connection
+```bash
+python test_supabase_connection.py
+# To also create tables:
+python test_supabase_connection.py --create-tables
+```
+
+### 6. Run Pipeline Scripts in Order
 ```bash
 python 01_data_collection.py
 python 02_data_storage.py

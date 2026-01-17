@@ -32,9 +32,20 @@ LOGS_DIR = PROJECT_ROOT / "logs"
 for dir_path in [DATA_DIR, RAW_DATA_DIR, PROCESSED_DATA_DIR, MODELS_DIR, LOGS_DIR]:
     dir_path.mkdir(parents=True, exist_ok=True)
 
-# Database
-DATABASE_PATH = DATA_DIR / "football.db"
-DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
+# Database - Supabase PostgreSQL
+# Get your Supabase connection string from: https://supabase.com/dashboard/project/YOUR_PROJECT/settings/database
+# Format: postgresql://postgres.[project-ref]:[password]@[host]:5432/postgres
+SUPABASE_DB_HOST = os.getenv("SUPABASE_DB_HOST", "db.rokhkbxbgwgfchamlbuh.supabase.co")
+SUPABASE_DB_PASSWORD = os.getenv("SUPABASE_DB_PASSWORD", "Danbrown1989!!")
+SUPABASE_DB_USER = os.getenv("SUPABASE_DB_USER", "postgres")
+SUPABASE_DB_PORT = os.getenv("SUPABASE_DB_PORT", "5432")
+SUPABASE_DB_NAME = os.getenv("SUPABASE_DB_NAME", "postgres")
+
+# Connection URL for SQLAlchemy
+DATABASE_URL = f"postgresql://{SUPABASE_DB_USER}:{SUPABASE_DB_PASSWORD}@{SUPABASE_DB_HOST}:{SUPABASE_DB_PORT}/{SUPABASE_DB_NAME}"
+
+# Alternative: You can also set the full connection string directly
+# DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres.[project-ref]:[password]@[host]:5432/postgres")
 
 # =============================================================================
 # API KEYS - ADD YOUR KEYS HERE
@@ -42,16 +53,16 @@ DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
 
 # Football-Data.org (free tier: 10 requests/minute)
 # Register at: https://www.football-data.org/client/register
-FOOTBALL_DATA_API_KEY = os.getenv("FOOTBALL_DATA_API_KEY", "YOUR_API_KEY_HERE")
+FOOTBALL_DATA_API_KEY = os.getenv("FOOTBALL_DATA_API_KEY", "65c752eb253c46b18f9f97046de5ea6c")
 
 # API-Football via RapidAPI (free tier: 100 requests/day)
 # Register at: https://rapidapi.com/api-sports/api/api-football
-API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY", "YOUR_RAPIDAPI_KEY_HERE")
+API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY", "0e0afc9a23b3c15719c4363e938e5b5d")
 API_FOOTBALL_HOST = "api-football-v1.p.rapidapi.com"
 
 # The Odds API (free tier: 500 requests/month)
 # Register at: https://the-odds-api.com/
-ODDS_API_KEY = os.getenv("ODDS_API_KEY", "YOUR_ODDS_API_KEY_HERE")
+ODDS_API_KEY = os.getenv("ODDS_API_KEY", "d6b5e48fb36db7c1efa11ce64db819c0")
 
 # =============================================================================
 # SUPPORTED LEAGUES

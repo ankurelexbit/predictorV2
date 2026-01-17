@@ -4,7 +4,7 @@
 
 This notebook sets up the database schema and ingests raw data.
 
-Database: SQLite (easy to start, can migrate to PostgreSQL)
+Database: PostgreSQL (Supabase)
 
 Schema:
 - teams: Normalized team information
@@ -28,8 +28,11 @@ from sqlalchemy import (
     Boolean, ForeignKey, Text, Index, CheckConstraint, UniqueConstraint,
     event
 )
-from sqlalchemy.orm import declarative_base, sessionmaker, relationship
+from sqlalchemy.orm import declarative_base, sessionmaker, relationship, aliased
 from sqlalchemy.sql import func
+from multiprocessing import Pool, cpu_count
+from functools import partial
+import time
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -281,6 +284,11 @@ class FeatureStore(Base):
     away_elo = Column(Float)
     elo_diff = Column(Float)
     
+    # Elo probabilities
+    elo_prob_home = Column(Float)
+    elo_prob_draw = Column(Float)
+    elo_prob_away = Column(Float)
+    
     # Form features
     home_form_3 = Column(Float)  # Points from last 3
     home_form_5 = Column(Float)
@@ -325,7 +333,15 @@ class DatabaseManager:
     """Manages database operations."""
     
     def __init__(self, db_url: str = DATABASE_URL):
-        self.engine = create_engine(db_url, echo=False)
+        # PostgreSQL connection with connection pooling
+        self.engine = create_engine(
+            db_url, 
+            echo=False,
+            pool_size=10,  # Number of connections to maintain in pool
+            max_overflow=20,  # Maximum overflow connections
+            pool_pre_ping=True,  # Test connections before using
+            pool_recycle=3600,  # Recycle connections after 1 hour
+        )
         self.Session = sessionmaker(bind=self.engine)
     
     def create_tables(self):
@@ -462,6 +478,7 @@ class DataIngester:
                     source="football_data_uk"
                 )
                 session.add(match)
+                session.flush()  # Flush to get the match ID
                 matches_added += 1
                 
                 # Also store odds if available
@@ -581,6 +598,115 @@ class DataIngester:
         
         logger.info(f"Total matches ingested: {total_matches}")
         return total_matches
+    
+    def ingest_all_csv_files_parallel(self, data_dir: Path = None, num_processes: int = None) -> int:
+        """
+        Ingest all CSV files from the data directory using multiprocessing.
+        
+        Args:
+            data_dir: Directory containing CSV files
+            num_processes: Number of processes to use (defaults to CPU count - 1)
+        
+        Returns:
+            Total number of matches ingested
+        """
+        data_dir = data_dir or (RAW_DATA_DIR / "football_data_uk")
+        
+        # Get all CSV files
+        csv_files = [f for f in sorted(data_dir.glob("*.csv")) 
+                    if f.name != "all_matches.csv"]
+        
+        if not csv_files:
+            logger.warning("No CSV files found to process")
+            return 0
+        
+        # Determine number of processes
+        if num_processes is None:
+            num_processes = max(1, cpu_count() - 1)
+        
+        logger.info(f"Processing {len(csv_files)} files using {num_processes} processes")
+        start_time = time.time()
+        
+        # First pass: Extract and deduplicate teams/leagues across all files
+        logger.info("Phase 1: Extracting teams and leagues...")
+        all_teams, all_leagues = self._extract_all_teams_and_leagues(csv_files, num_processes)
+        
+        # Insert teams and leagues first
+        logger.info("Phase 2: Creating teams and leagues...")
+        self._bulk_create_teams_and_leagues(all_teams, all_leagues)
+        
+        # Second pass: Process matches in parallel
+        logger.info("Phase 3: Processing matches in parallel...")
+        with Pool(processes=num_processes) as pool:
+            # Create a partial function with the database URL
+            process_func = partial(_process_csv_file_optimized, DATABASE_URL)
+            
+            # Process files in parallel
+            results = pool.map(process_func, csv_files)
+        
+        # Sum up total matches
+        total_matches = sum(results)
+        
+        elapsed_time = time.time() - start_time
+        logger.info(f"Total matches ingested: {total_matches} in {elapsed_time:.2f} seconds")
+        logger.info(f"Average: {elapsed_time/len(csv_files):.2f} seconds per file")
+        
+        return total_matches
+    
+    def _extract_all_teams_and_leagues(self, csv_files: List[Path], num_processes: int) -> tuple:
+        """Extract unique teams and leagues from all CSV files."""
+        with Pool(processes=num_processes) as pool:
+            results = pool.map(_extract_teams_and_leagues_from_csv, csv_files)
+        
+        # Combine results
+        all_teams = {}
+        all_leagues = {}
+        
+        for teams, leagues in results:
+            all_teams.update(teams)
+            all_leagues.update(leagues)
+        
+        return all_teams, all_leagues
+    
+    def _bulk_create_teams_and_leagues(self, teams: Dict, leagues: Dict):
+        """Bulk create teams and leagues in the database."""
+        session = self.db.get_session()
+        
+        try:
+            # Create leagues
+            for code, info in leagues.items():
+                existing = session.query(League).filter_by(code=code).first()
+                if not existing:
+                    league = League(
+                        code=code,
+                        name=info["name"],
+                        country=info["country"]
+                    )
+                    session.add(league)
+            
+            session.commit()
+            
+            # Create teams
+            for normalized_name, info in teams.items():
+                existing = session.query(Team).filter_by(normalized_name=normalized_name).first()
+                if not existing:
+                    team = Team(
+                        name=info["name"],
+                        normalized_name=normalized_name,
+                        country=info["country"],
+                        football_data_uk_name=info["name"]
+                    )
+                    session.add(team)
+            
+            session.commit()
+            logger.info(f"Created {len(leagues)} leagues and {len(teams)} teams")
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error creating teams/leagues: {e}")
+            raise
+        finally:
+            session.close()
 
 
 # =============================================================================
@@ -613,6 +739,10 @@ class DataExporter:
         session = self.db.get_session()
         
         try:
+            # Create aliases for home and away teams
+            HomeTeam = aliased(Team)
+            AwayTeam = aliased(Team)
+            
             # Base query
             query = session.query(
                 Match.id.label('match_id'),
@@ -620,8 +750,8 @@ class DataExporter:
                 Match.season,
                 League.code.label('league_code'),
                 League.name.label('league_name'),
-                Team.name.label('home_team'),
-                session.query(Team.name).filter(Team.id == Match.away_team_id).scalar_subquery().label('away_team'),
+                HomeTeam.name.label('home_team'),
+                AwayTeam.name.label('away_team'),
                 Match.home_goals,
                 Match.away_goals,
                 Match.result,
@@ -635,7 +765,9 @@ class DataExporter:
             ).join(
                 League, Match.league_id == League.id
             ).join(
-                Team, Match.home_team_id == Team.id
+                HomeTeam, Match.home_team_id == HomeTeam.id
+            ).join(
+                AwayTeam, Match.away_team_id == AwayTeam.id
             ).filter(
                 Match.status == 'finished',
                 Match.result.isnot(None)
@@ -701,6 +833,257 @@ class DataExporter:
 
 
 # =============================================================================
+# MULTIPROCESSING HELPER FUNCTIONS
+# =============================================================================
+
+def _extract_teams_and_leagues_from_csv(csv_path: Path) -> tuple:
+    """Extract unique teams and leagues from a CSV file."""
+    try:
+        df = pd.read_csv(csv_path, encoding='latin-1')
+        
+        if df.empty or 'HomeTeam' not in df.columns:
+            return {}, {}
+        
+        # Extract league info
+        league_code = csv_path.stem.split('_')[0]
+        league_info = LEAGUES_CSV.get(league_code, {"name": league_code, "country": "Unknown"})
+        leagues = {league_code: league_info}
+        
+        # Extract teams
+        teams = {}
+        all_teams = pd.concat([df['HomeTeam'], df['AwayTeam']]).dropna().unique()
+        
+        for team_name in all_teams:
+            normalized = normalize_team_name(team_name)
+            teams[normalized] = {
+                "name": team_name,
+                "country": league_info["country"]
+            }
+        
+        return teams, leagues
+        
+    except Exception as e:
+        logger.error(f"Error extracting from {csv_path}: {e}")
+        return {}, {}
+
+
+def _process_csv_file_optimized(db_url: str, csv_path: Path) -> int:
+    """
+    Process a single CSV file with optimized database operations.
+    This function runs in a separate process.
+    """
+    # Create new engine and session for this process
+    engine = create_engine(db_url, pool_size=1, max_overflow=0)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    
+    try:
+        logger.info(f"Processing {csv_path}")
+        
+        # Read CSV
+        df = pd.read_csv(csv_path, encoding='latin-1')
+        
+        if df.empty or 'HomeTeam' not in df.columns:
+            return 0
+        
+        # Get league
+        league_code = csv_path.stem.split('_')[0]
+        league = session.query(League).filter_by(code=league_code).first()
+        
+        if not league:
+            logger.error(f"League {league_code} not found!")
+            return 0
+        
+        # Build team lookup
+        team_names = pd.concat([df['HomeTeam'], df['AwayTeam']]).dropna().unique()
+        team_lookup = {}
+        
+        for team_name in team_names:
+            normalized = normalize_team_name(team_name)
+            team = session.query(Team).filter_by(normalized_name=normalized).first()
+            if team:
+                team_lookup[team_name] = team.id
+        
+        # Process matches in batches
+        matches_data = []
+        odds_data = []
+        
+        for _, row in df.iterrows():
+            # Skip invalid rows
+            if pd.isna(row.get('HomeTeam')) or pd.isna(row.get('AwayTeam')):
+                continue
+            
+            home_team_id = team_lookup.get(row['HomeTeam'])
+            away_team_id = team_lookup.get(row['AwayTeam'])
+            
+            if not home_team_id or not away_team_id:
+                continue
+            
+            # Parse date
+            match_date = parse_date(str(row.get('Date', '')))
+            if not match_date:
+                continue
+            
+            # Check if match exists
+            existing = session.query(Match).filter(
+                Match.date == match_date,
+                Match.home_team_id == home_team_id,
+                Match.away_team_id == away_team_id
+            ).first()
+            
+            if existing:
+                continue
+            
+            # Prepare match data
+            home_goals = _safe_int(row.get('FTHG'))
+            away_goals = _safe_int(row.get('FTAG'))
+            result = row.get('FTR')
+            
+            match_dict = {
+                'league_id': league.id,
+                'season': row.get('season', get_season_from_date(match_date)),
+                'date': match_date,
+                'home_team_id': home_team_id,
+                'away_team_id': away_team_id,
+                'home_goals': home_goals,
+                'away_goals': away_goals,
+                'result': result if pd.notna(result) else None,
+                'result_numeric': encode_result(home_goals, away_goals) if home_goals is not None else None,
+                'ht_home_goals': _safe_int(row.get('HTHG')),
+                'ht_away_goals': _safe_int(row.get('HTAG')),
+                'home_shots': _safe_int(row.get('HS')),
+                'away_shots': _safe_int(row.get('AS')),
+                'home_shots_on_target': _safe_int(row.get('HST')),
+                'away_shots_on_target': _safe_int(row.get('AST')),
+                'home_corners': _safe_int(row.get('HC')),
+                'away_corners': _safe_int(row.get('AC')),
+                'home_fouls': _safe_int(row.get('HF')),
+                'away_fouls': _safe_int(row.get('AF')),
+                'home_yellows': _safe_int(row.get('HY')),
+                'away_yellows': _safe_int(row.get('AY')),
+                'home_reds': _safe_int(row.get('HR')),
+                'away_reds': _safe_int(row.get('AR')),
+                'status': "finished" if result else "scheduled",
+                'source': "football_data_uk"
+            }
+            
+            matches_data.append(match_dict)
+            
+            # Prepare odds data (we'll link them after bulk insert)
+            odds_row_data = _extract_odds_from_row(row, len(matches_data) - 1, match_date)
+            odds_data.extend(odds_row_data)
+        
+        # Bulk insert matches
+        if matches_data:
+            session.bulk_insert_mappings(Match, matches_data)
+            session.commit()
+            
+            # Get the inserted match IDs
+            # We need to query back to get the IDs for odds
+            match_ids = []
+            for match_data in matches_data:
+                match = session.query(Match).filter(
+                    Match.date == match_data['date'],
+                    Match.home_team_id == match_data['home_team_id'],
+                    Match.away_team_id == match_data['away_team_id']
+                ).first()
+                if match:
+                    match_ids.append(match.id)
+            
+            # Update odds data with actual match IDs
+            for odds_record in odds_data:
+                if odds_record['temp_match_idx'] < len(match_ids):
+                    odds_record['match_id'] = match_ids[odds_record['temp_match_idx']]
+                    del odds_record['temp_match_idx']
+            
+            # Bulk insert odds
+            valid_odds = [o for o in odds_data if 'match_id' in o]
+            if valid_odds:
+                session.bulk_insert_mappings(OddsSnapshot, valid_odds)
+                session.commit()
+        
+        logger.info(f"Processed {len(matches_data)} matches from {csv_path}")
+        return len(matches_data)
+        
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error processing {csv_path}: {e}")
+        return 0
+    finally:
+        session.close()
+        engine.dispose()
+
+
+def _safe_int(value) -> Optional[int]:
+    """Safely convert to int."""
+    if pd.isna(value):
+        return None
+    try:
+        return int(float(value))
+    except (ValueError, TypeError):
+        return None
+
+
+def _safe_float(value) -> Optional[float]:
+    """Safely convert to float."""
+    if pd.isna(value):
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _extract_odds_from_row(row: pd.Series, match_idx: int, match_date) -> List[Dict]:
+    """Extract odds data from a CSV row."""
+    bookmakers = {
+        'B365': ('B365H', 'B365D', 'B365A'),
+        'BW': ('BWH', 'BWD', 'BWA'),
+        'IW': ('IWH', 'IWD', 'IWA'),
+        'PS': ('PSH', 'PSD', 'PSA'),
+        'WH': ('WHH', 'WHD', 'WHA'),
+        'VC': ('VCH', 'VCD', 'VCA'),
+    }
+    
+    odds_records = []
+    
+    for book_name, (h_col, d_col, a_col) in bookmakers.items():
+        home_odds = _safe_float(row.get(h_col))
+        draw_odds = _safe_float(row.get(d_col))
+        away_odds = _safe_float(row.get(a_col))
+        
+        if home_odds and draw_odds and away_odds:
+            # Calculate implied probabilities
+            home_imp = 1 / home_odds
+            draw_imp = 1 / draw_odds
+            away_imp = 1 / away_odds
+            overround = home_imp + draw_imp + away_imp
+            
+            # Calculate fair probabilities (remove vig)
+            home_fair = home_imp / overround
+            draw_fair = draw_imp / overround
+            away_fair = away_imp / overround
+            
+            odds_records.append({
+                'temp_match_idx': match_idx,
+                'bookmaker': book_name,
+                'home_odds': home_odds,
+                'draw_odds': draw_odds,
+                'away_odds': away_odds,
+                'home_implied': home_imp,
+                'draw_implied': draw_imp,
+                'away_implied': away_imp,
+                'home_fair': home_fair,
+                'draw_fair': draw_fair,
+                'away_fair': away_fair,
+                'overround': overround,
+                'snapshot_time': match_date
+            })
+    
+    return odds_records
+
+
+# =============================================================================
 # MAIN EXECUTION
 # =============================================================================
 
@@ -713,6 +1096,8 @@ def main():
     parser.add_argument("--ingest", action="store_true", help="Ingest CSV data")
     parser.add_argument("--export", action="store_true", help="Export data for modeling")
     parser.add_argument("--all", action="store_true", help="Run all steps")
+    parser.add_argument("--parallel", action="store_true", help="Use parallel processing for ingestion")
+    parser.add_argument("--processes", type=int, help="Number of processes for parallel ingestion")
     
     args = parser.parse_args()
     
@@ -737,7 +1122,10 @@ def main():
         
         csv_dir = RAW_DATA_DIR / "football_data_uk"
         if csv_dir.exists():
-            total = ingester.ingest_all_csv_files(csv_dir)
+            if args.parallel:
+                total = ingester.ingest_all_csv_files_parallel(csv_dir, args.processes)
+            else:
+                total = ingester.ingest_all_csv_files(csv_dir)
             print(f"\nIngested {total} matches into database")
         else:
             print(f"\nNo data found in {csv_dir}")

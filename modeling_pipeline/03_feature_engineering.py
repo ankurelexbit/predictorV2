@@ -323,7 +323,10 @@ class FormCalculator:
                 'goals_for': None,
                 'goals_against': None,
                 'goal_diff': None,
-                'matches_played': 0
+                'matches_played': 0,
+                'ppg': None,
+                'goals_for_avg': None,
+                'goals_against_avg': None
             }
         
         points = sum(m['points'] for m in recent)
@@ -420,7 +423,8 @@ class HeadToHeadCalculator:
                 'h2h_team2_wins': None,
                 'h2h_total': 0,
                 'h2h_team1_goals': None,
-                'h2h_team2_goals': None
+                'h2h_team2_goals': None,
+                'h2h_team1_win_rate': None
             }
         
         team1_wins = 0
