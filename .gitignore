@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# Data files (too large for git)
+modeling_pipeline/data/raw/
+modeling_pipeline/data/processed/*.csv
+modeling_pipeline/data/processed/*.png
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+modeling_pipeline/logs/
+
+# Models
+modeling_pipeline/models/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
