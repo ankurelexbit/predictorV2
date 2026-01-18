@@ -1,0 +1,26 @@
+date,league,home_team,away_team,venue,model_used,home_win_prob,draw_prob,away_win_prob,predicted_outcome,error
+2026-01-18 11:30:00,Serie A,Parma,Genoa,Stadio Ennio Tardini,xgboost,0.4267241358757019,0.38017240166664124,0.19310344755649567,Home Win,
+2026-01-18 13:00:00,La Liga,Getafe,Valencia,Coliseum Alfonso Pérez,xgboost,0.48511940240859985,0.32671305537223816,0.1881675124168396,Home Win,
+2026-01-18 14:00:00,Serie A,Bologna,Fiorentina,Stadio Renato Dall'Ara,xgboost,0.6216936707496643,0.26566123962402344,0.11264509707689285,Home Win,
+2026-01-18 14:00:00,Premier League,Wolverhampton Wanderers,Newcastle United,Molineux Stadium,xgboost,0.11362575739622116,0.24760174751281738,0.6387725472450256,Away Win,
+2026-01-18 14:00:00,Ligue 1,Strasbourg,Metz,Stade de la Meinau,xgboost,0.6162733435630798,0.23644773662090302,0.14727887511253357,Home Win,
+2026-01-18 14:30:00,Bundesliga,VfB Stuttgart,FC Union Berlin,MHPArena,xgboost,0.5361838340759277,0.3230287730693817,0.14078736305236816,Home Win,
+2026-01-18 15:15:00,La Liga,Atlético Madrid,Deportivo Alavés,Riyadh Air Metropolitano,xgboost,0.674869954586029,0.22093957662582397,0.10419045388698578,Home Win,
+2026-01-18 16:15:00,Ligue 1,Nantes,Paris,Stade de la Beaujoire - Louis Fonteneau,,,,,,"The feature names should match those that were passed during fit.
+Feature names seen at fit time, yet now missing:
+- elo_diff
+- form_diff_3
+- form_diff_5
+- home_attack_strength_5
+- home_big_chances_created_5
+- ...
+"
+2026-01-18 16:15:00,Ligue 1,Rennes,Le Havre,Roazhon Park,,,,,,"The feature names should match those that were passed during fit.
+Feature names seen at fit time, yet now missing:
+- away_attack_strength_5
+- away_big_chances_created_5
+- away_dangerous_attacks_5
+- away_defense_strength_5
+- away_elo
+- ...
+"
