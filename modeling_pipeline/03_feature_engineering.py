@@ -671,22 +671,57 @@ class FeatureBuilder:
                 features['position_diff'] = None
             
             # 6. Market odds (if available)
-            if 'market_prob_home' in row and pd.notna(row['market_prob_home']):
-                features['market_prob_home'] = row['market_prob_home']
-                features['market_prob_draw'] = row['market_prob_draw']
-                features['market_prob_away'] = row['market_prob_away']
-                features['avg_home_odds'] = row.get('avg_home_odds')
-                features['avg_draw_odds'] = row.get('avg_draw_odds')
-                features['avg_away_odds'] = row.get('avg_away_odds')
+            # 6. Market odds (if available)
+            # Source columns are avg_odds_home/draw/away
+            avg_odds_home = row.get('avg_odds_home')
+            avg_odds_draw = row.get('avg_odds_draw') 
+            avg_odds_away = row.get('avg_odds_away')
             
-            # -----------------------------
+            if pd.notna(avg_odds_home) and pd.notna(avg_odds_draw) and pd.notna(avg_odds_away):
+                # Calculate implied probabilities
+                imp_home = 1.0 / avg_odds_home
+                imp_draw = 1.0 / avg_odds_draw
+                imp_away = 1.0 / avg_odds_away
+                
+                # Remove vig (normalize to sum = 1)
+                total_imp = imp_home + imp_draw + imp_away
+                features['market_prob_home'] = imp_home / total_imp
+                features['market_prob_draw'] = imp_draw / total_imp
+                features['market_prob_away'] = imp_away / total_imp
+                features['market_overround'] = total_imp - 1.0
+                
+                # Store original odds
+                features['avg_home_odds'] = avg_odds_home
+                features['avg_draw_odds'] = avg_odds_draw
+                features['avg_away_odds'] = avg_odds_away
+            else:
+                # If odds missing, set to None
+                features['market_prob_home'] = None
+                features['market_prob_draw'] = None
+                features['market_prob_away'] = None
+                features['market_overround'] = None
+                features['avg_home_odds'] = None
+                features['avg_draw_odds'] = None
+                features['avg_away_odds'] = None
+            
             # TARGET VARIABLE
             # -----------------------------
             if include_target:
                 features['result'] = row.get('result')
-                features['result_numeric'] = row.get('result_numeric')
-                features['home_goals'] = row.get('home_goals')
-                features['away_goals'] = row.get('away_goals')
+                
+                # Calculate result_numeric from goals if not present
+                h_goals = row.get('home_goals')
+                a_goals = row.get('away_goals')
+                
+                if row.get('result_numeric') is not None:
+                    features['result_numeric'] = row.get('result_numeric')
+                elif pd.notna(h_goals) and pd.notna(a_goals):
+                    features['result_numeric'] = encode_result(int(h_goals), int(a_goals))
+                else:
+                    features['result_numeric'] = None
+                    
+                features['home_goals'] = h_goals
+                features['away_goals'] = a_goals
             
             features_list.append(features)
             
@@ -774,6 +809,9 @@ def get_feature_columns() -> List[str]:
         
         # League position
         'home_position', 'away_position', 'position_diff',
+        
+        # Market odds features
+        'market_prob_home', 'market_prob_draw', 'market_prob_away',
     ]
     
     return features

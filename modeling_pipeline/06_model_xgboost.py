@@ -62,58 +62,158 @@ set_random_seed(RANDOM_SEED)
 
 
 # =============================================================================
-# FEATURE CONFIGURATION
+# FEATURE CONFIGURATION (Updated for Sportmonks data)
 # =============================================================================
 
 # Core features for XGBoost
+# NOTE: Market odds are intentionally EXCLUDED to force the model to find
+# independent alpha rather than learning to copy bookmaker probabilities.
+# Market odds are used only for comparison and edge calculation at prediction time.
 FEATURE_COLUMNS = [
-    # Elo features (most important)
+    # Elo features (primary strength indicator)
     'home_elo',
-    'away_elo', 
+    'away_elo',
     'elo_diff',
-    
-    # Form features (5-match window)
-    'home_form_5_ppg',
-    'away_form_5_ppg',
-    'home_form_5_gf',
-    'away_form_5_gf',
-    'home_form_5_ga',
-    'away_form_5_ga',
-    
+
     # Form features (3-match window for recency)
-    'home_form_3_ppg',
-    'away_form_3_ppg',
-    
-    # Rest days
-    'home_rest_days',
-    'away_rest_days',
-    'rest_diff',
-    
+    'home_form_3',
+    'away_form_3',
+    'form_diff_3',
+    'home_wins_3',
+    'away_wins_3',
+
+    # Form features (5-match window for balance)
+    'home_form_5',
+    'away_form_5',
+    'form_diff_5',
+    'home_wins_5',
+    'away_wins_5',
+
+    # Rolling stats - Goals (5-match window)
+    'home_goals_5',
+    'away_goals_5',
+    'home_goals_conceded_5',
+    'away_goals_conceded_5',
+
+    # Rolling stats - xG (approximated from shots)
+    'home_xg_5',
+    'away_xg_5',
+    'home_xg_conceded_5',
+    'away_xg_conceded_5',
+
+    # Rolling stats - Shots (key for attacking threat)
+    'home_shots_total_5',
+    'away_shots_total_5',
+    'home_shots_on_target_5',
+    'away_shots_on_target_5',
+
+    # Rolling stats - Dangerous attacks
+    'home_dangerous_attacks_5',
+    'away_dangerous_attacks_5',
+
+    # Rolling stats - Possession & passing
+    'home_possession_pct_5',
+    'away_possession_pct_5',
+    'home_successful_passes_pct_5',
+    'away_successful_passes_pct_5',
+
+    # Defensive stats
+    'home_tackles_5',
+    'away_tackles_5',
+    'home_interceptions_5',
+    'away_interceptions_5',
+
+    # Big chances (key for xG quality)
+    'home_big_chances_created_5',
+    'away_big_chances_created_5',
+
+    # Player-level stats (aggregated) - KEY advanced features
+    'home_clearances_5',
+    'away_clearances_5',
+    'home_aerials_won_5',
+    'away_aerials_won_5',
+    'home_touches_5',
+    'away_touches_5',
+    'home_rating_5',
+    'away_rating_5',
+    'home_duels_won_5',
+    'away_duels_won_5',
+    'home_possession_lost_5',
+    'away_possession_lost_5',
+    'home_tackles_won_5',
+    'away_tackles_won_5',
+    'home_dispossessed_5',
+    'away_dispossessed_5',
+
+    # Alternative naming (player_ prefix)
+    'home_player_clearances_5',
+    'away_player_clearances_5',
+    'home_player_rating_5',
+    'away_player_rating_5',
+    'home_player_touches_5',
+    'away_player_touches_5',
+    'home_player_duels_won_5',
+    'away_player_duels_won_5',
+
+    # Longer window (10-match) for stability
+    'home_goals_10',
+    'away_goals_10',
+    'home_xg_10',
+    'away_xg_10',
+    'home_clearances_10',
+    'away_clearances_10',
+    'home_rating_10',
+    'away_rating_10',
+
     # Head-to-head
     'h2h_home_wins',
     'h2h_draws',
     'h2h_away_wins',
-    'h2h_home_win_rate',
-    'h2h_total',
-    
-    # League position
+    'h2h_home_goals_avg',
+    'h2h_away_goals_avg',
+
+    # League position & points
     'home_position',
     'away_position',
     'position_diff',
-    'home_league_points',
-    'away_league_points',
+    'home_points',
+    'away_points',
+    'points_diff',
+
+    # Injury/sidelined data
+    'home_injuries',
+    'away_injuries',
+    'injury_diff',
+
+    # Attack/defense strength
+    'home_attack_strength_5',
+    'away_attack_strength_5',
+    'home_defense_strength_5',
+    'away_defense_strength_5',
+
+    # Contextual features
+    'round_num',
+    'season_progress',
+    'is_early_season',
+    'is_weekend',
 ]
 
-# Features to potentially add if available
+# Additional features available but not included by default
+# (to avoid overfitting - add if they prove useful)
 OPTIONAL_FEATURES = [
-    # 10-match form
-    'home_form_10_ppg',
-    'away_form_10_ppg',
-    
-    # Elo probabilities as features (can help)
-    'elo_prob_home',
-    'elo_prob_draw', 
-    'elo_prob_away',
+    'home_corners_5',
+    'away_corners_5',
+    'home_fouls_5',
+    'away_fouls_5',
+    'home_passes_5',
+    'away_passes_5',
+]
+
+# Market features (excluded from training, used for comparison only)
+MARKET_FEATURES = [
+    'market_prob_home',
+    'market_prob_draw',
+    'market_prob_away',
 ]
 
 
@@ -539,12 +639,12 @@ def plot_learning_curves(model: XGBoostFootballModel):
 def main():
     """Train and evaluate XGBoost model."""
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="XGBoost Model")
     parser.add_argument(
         "--features",
         type=str,
-        default=str(PROCESSED_DATA_DIR / "features_data_driven.csv"),
+        default=str(PROCESSED_DATA_DIR / "sportmonks_features.csv"),
         help="Features CSV path"
     )
     parser.add_argument(
@@ -563,31 +663,68 @@ def main():
         action="store_true",
         help="Save evaluation plots"
     )
-    
+
     args = parser.parse_args()
-    
+
     # Load features
     logger.info(f"Loading features from {args.features}")
     features_df = pd.read_csv(args.features)
     features_df['date'] = pd.to_datetime(features_df['date'])
-    
+
     print(f"\nLoaded {len(features_df)} matches")
-    
-    # Filter to matches with results
-    mask = features_df['result_numeric'].notna()
-    df = features_df[mask].copy()
+
+    # Handle both old (result_numeric) and new (target) format
+    if 'result_numeric' in features_df.columns:
+        mask = features_df['result_numeric'].notna()
+        df = features_df[mask].copy()
+    elif 'target' in features_df.columns:
+        # New Sportmonks format uses 'target' column
+        mask = features_df['target'].notna()
+        df = features_df[mask].copy()
+        # Map target to result_numeric for compatibility (0=away, 1=draw, 2=home)
+        df['result_numeric'] = df['target']
+    else:
+        raise ValueError("No result column found (expected 'result_numeric' or 'target')")
+
     print(f"Matches with results: {len(df)}")
-    
-    # Split by season
-    train_df, val_df, test_df = season_based_split(
-        df, 'season',
-        TRAIN_SEASONS, VALIDATION_SEASONS, TEST_SEASONS
-    )
-    
-    print(f"\nData split:")
-    print(f"  Train: {len(train_df)} ({TRAIN_SEASONS})")
-    print(f"  Validation: {len(val_df)} ({VALIDATION_SEASONS})")
-    print(f"  Test: {len(test_df)} ({TEST_SEASONS})")
+
+    # Handle season column - prefer season_name for consistent splits
+    if 'season_name' in df.columns:
+        season_col = 'season_name'
+        use_season_split = True
+    elif 'season' in df.columns:
+        season_col = 'season'
+        use_season_split = True
+    else:
+        season_col = 'season_id'
+        use_season_split = False
+
+    # Use time-based split only if no season column available
+    if not use_season_split:
+        # Sort by date and use 70/15/15 split
+        df = df.sort_values('date').reset_index(drop=True)
+        n = len(df)
+        train_end = int(n * 0.70)
+        val_end = int(n * 0.85)
+
+        train_df = df.iloc[:train_end].copy()
+        val_df = df.iloc[train_end:val_end].copy()
+        test_df = df.iloc[val_end:].copy()
+
+        print(f"\nData split (time-based):")
+        print(f"  Train: {len(train_df)} ({train_df['date'].min().date()} to {train_df['date'].max().date()})")
+        print(f"  Validation: {len(val_df)} ({val_df['date'].min().date()} to {val_df['date'].max().date()})")
+        print(f"  Test: {len(test_df)} ({test_df['date'].min().date()} to {test_df['date'].max().date()})")
+    else:
+        # Original season-based split
+        train_df, val_df, test_df = season_based_split(
+            df, season_col,
+            TRAIN_SEASONS, VALIDATION_SEASONS, TEST_SEASONS
+        )
+        print(f"\nData split (season-based):")
+        print(f"  Train: {len(train_df)} ({TRAIN_SEASONS})")
+        print(f"  Validation: {len(val_df)} ({VALIDATION_SEASONS})")
+        print(f"  Test: {len(test_df)} ({TEST_SEASONS})")
     
     # Hyperparameter tuning (optional)
     if args.tune:

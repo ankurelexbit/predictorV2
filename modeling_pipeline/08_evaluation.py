@@ -81,7 +81,7 @@ class WalkForwardValidator:
     def split(
         self,
         df: pd.DataFrame,
-        season_column: str = 'season'
+        season_column: str = 'season_name'
     ) -> List[Tuple[pd.DataFrame, pd.DataFrame]]:
         """
         Generate train/test splits.
@@ -154,7 +154,7 @@ class WalkForwardValidator:
             model.fit(train_df)
             
             # Get predictions
-            y_test = test_df['result_numeric'].values.astype(int)
+            y_test = test_df['target'].values.astype(int)
             test_probs = model.predict_proba(test_df)
             
             # Calculate metrics
@@ -175,7 +175,7 @@ class WalkForwardValidator:
             results.append(metrics)
             
             # Store predictions
-            pred_df = test_df[['date', 'home_team', 'away_team', 'result_numeric']].copy()
+            pred_df = test_df[['date', 'home_team_name', 'away_team_name', 'target']].copy()
             pred_df['p_home'] = test_probs[:, 0]
             pred_df['p_draw'] = test_probs[:, 1]
             pred_df['p_away'] = test_probs[:, 2]
@@ -396,7 +396,7 @@ class BettingSimulator:
                     if stake <= 0:
                         continue
                     
-                    actual_outcome = int(row['result_numeric'])
+                    actual_outcome = int(row['target'])
                     won = actual_outcome == outcome_idx
                     
                     if won:
@@ -412,8 +412,8 @@ class BettingSimulator:
                     
                     results['bets'].append({
                         'date': row['date'],
-                        'home_team': row['home_team'],
-                        'away_team': row['away_team'],
+                        'home_team_name': row['home_team_name'],
+                        'away_team_name': row['away_team_name'],
                         'outcome_bet': ['Home', 'Draw', 'Away'][outcome_idx],
                         'prob': probs[outcome_idx],
                         'odds': odds[outcome_idx],
@@ -498,7 +498,7 @@ class BettingSimulator:
                     if stake < 1:  # Minimum bet
                         continue
                     
-                    actual_outcome = int(row['result_numeric'])
+                    actual_outcome = int(row['target'])
                     won = actual_outcome == outcome_idx
                     
                     if won:
@@ -613,7 +613,7 @@ def analyze_by_segment(
     results = []
     
     for segment, group in predictions_df.groupby(segment_column):
-        y_true = group['result_numeric'].values.astype(int)
+        y_true = group['target'].values.astype(int)
         y_pred = group[['p_home', 'p_draw', 'p_away']].values
         
         metrics = {
@@ -663,7 +663,7 @@ def main():
     
     # Filter to completed matches with predictions
     mask = (
-        features_df['result_numeric'].notna() &
+        features_df['target'].notna() &
         features_df['elo_prob_home'].notna()
     )
     df = features_df[mask].copy()
@@ -675,7 +675,7 @@ def main():
     df['p_draw'] = df['elo_prob_draw']
     df['p_away'] = df['elo_prob_away']
     
-    y_true = df['result_numeric'].values.astype(int)
+    y_true = df['target'].values.astype(int)
     y_pred = df[['p_home', 'p_draw', 'p_away']].values
     
     # Overall metrics
@@ -711,7 +711,7 @@ def main():
     print("PERFORMANCE BY SEASON")
     print("=" * 60)
     
-    season_perf = analyze_by_segment(df, 'season')
+    season_perf = analyze_by_segment(df, 'season_name')
     print(season_perf.to_string(index=False))
     
     # Performance by league
