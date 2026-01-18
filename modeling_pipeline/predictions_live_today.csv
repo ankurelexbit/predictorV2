@@ -1,0 +1,10 @@
+date,league,home_team,away_team,venue,error
+2026-01-19 14:00:00,Super Lig,Konyaspor,Eyüpspor,Konya Büyükşehir Belediye Stadyumu,Could not fetch API data
+2026-01-19 17:00:00,Super Lig,Beşiktaş,Kayserispor,Beşiktaş Park,Could not fetch API data
+2026-01-19 17:00:00,Super Lig,Göztepe,Rizespor,Göztepe Gürsel Aksel Stadı (İzmir),Could not fetch API data
+2026-01-19 17:30:00,Serie A,Cremonese,Hellas Verona,Stadio Giovanni Zini,Could not fetch API data
+2026-01-19 19:30:00,La Liga 2,Granada,SD Eibar,Estadio Nuevo Los Cármenes,Could not fetch API data
+2026-01-19 19:45:00,Serie A,Lazio,Como,Stadio Olimpico,Could not fetch API data
+2026-01-19 20:00:00,Premier League,Brighton & Hove Albion,AFC Bournemouth,The American Express Community Stadium,Could not fetch API data
+2026-01-19 20:00:00,La Liga,Elche,Sevilla,Estadio Manuel Martínez Valero,Could not fetch API data
+2026-01-19 20:15:00,Liga Portugal,Estrela Amadora,Estoril,Estádio José Gomes,Could not fetch API data

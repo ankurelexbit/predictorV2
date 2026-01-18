@@ -1,0 +1,10 @@
+date,league,home_team,away_team,venue,model_used,home_win_prob,draw_prob,away_win_prob,predicted_outcome,data_source
+2026-01-19 14:00:00,Super Lig,Konyaspor,Eyüpspor,Konya Büyükşehir Belediye Stadyumu,xgboost,0.5571689009666443,0.28573763370513916,0.15709345042705536,Home Win,live_api
+2026-01-19 17:00:00,Super Lig,Beşiktaş,Kayserispor,Beşiktaş Park,xgboost,0.4980258047580719,0.24910768866539001,0.2528665065765381,Home Win,live_api
+2026-01-19 17:00:00,Super Lig,Göztepe,Rizespor,Göztepe Gürsel Aksel Stadı (İzmir),xgboost,0.4838341474533081,0.23950183391571045,0.2766640782356262,Home Win,live_api
+2026-01-19 17:30:00,Serie A,Cremonese,Hellas Verona,Stadio Giovanni Zini,xgboost,0.4980258047580719,0.24910768866539001,0.2528665065765381,Home Win,live_api
+2026-01-19 19:30:00,La Liga 2,Granada,SD Eibar,Estadio Nuevo Los Cármenes,xgboost,0.4980258047580719,0.24910768866539001,0.2528665065765381,Home Win,live_api
+2026-01-19 19:45:00,Serie A,Lazio,Como,Stadio Olimpico,xgboost,0.5142042636871338,0.31346064805984497,0.17233505845069885,Home Win,live_api
+2026-01-19 20:00:00,Premier League,Brighton & Hove Albion,AFC Bournemouth,The American Express Community Stadium,xgboost,0.4980258047580719,0.24910768866539001,0.2528665065765381,Home Win,live_api
+2026-01-19 20:00:00,La Liga,Elche,Sevilla,Estadio Manuel Martínez Valero,xgboost,0.5062843561172485,0.30863264203071594,0.18508298695087433,Home Win,live_api
+2026-01-19 20:15:00,Liga Portugal,Estrela Amadora,Estoril,Estádio José Gomes,xgboost,0.4838341474533081,0.23950183391571045,0.2766640782356262,Home Win,live_api
