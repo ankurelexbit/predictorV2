@@ -429,7 +429,7 @@ def main():
     parser.add_argument(
         "--features",
         type=str,
-        default=str(PROCESSED_DATA_DIR / "features.csv"),
+        default=str(PROCESSED_DATA_DIR / "features_data_driven.csv"),
         help="Features CSV path"
     )
     parser.add_argument(

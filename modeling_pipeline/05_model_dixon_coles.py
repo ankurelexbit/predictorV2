@@ -152,7 +152,7 @@ class DixonColesModel:
         weights: np.ndarray
     ) -> float:
         """
-        Compute negative log-likelihood for optimization.
+        Compute negative log-likelihood for optimization (VECTORIZED).
         
         params layout: [attack_0, ..., attack_n, defense_0, ..., defense_n, home_adv, rho]
         """
@@ -164,7 +164,7 @@ class DixonColesModel:
         home_adv = params[2*n_teams]
         rho = params[2*n_teams + 1]
         
-        # Calculate expected goals
+        # Calculate expected goals (vectorized)
         lambda_home = np.exp(attack[home_idx] + defense[away_idx] + home_adv)
         lambda_away = np.exp(attack[away_idx] + defense[home_idx])
         
@@ -172,29 +172,46 @@ class DixonColesModel:
         lambda_home = np.clip(lambda_home, 0.001, 10)
         lambda_away = np.clip(lambda_away, 0.001, 10)
         
-        # Calculate log-likelihood
-        log_lik = 0.0
+        # Vectorized Poisson log-probability
+        # log(P(k; λ)) = k*log(λ) - λ - log(k!)
+        hg = home_goals.astype(int)
+        ag = away_goals.astype(int)
         
-        for i in range(len(home_goals)):
-            hg, ag = int(home_goals[i]), int(away_goals[i])
-            lh, la = lambda_home[i], lambda_away[i]
-            w = weights[i]
-            
-            # Poisson probability
-            prob_home = poisson.pmf(hg, lh)
-            prob_away = poisson.pmf(ag, la)
-            
-            # Tau correction
-            tau = self._tau(hg, ag, lh, la, rho)
-            
-            # Combined probability
-            prob = prob_home * prob_away * tau
-            prob = max(prob, 1e-10)  # Prevent log(0)
-            
-            log_lik += w * np.log(prob)
+        from scipy.special import gammaln
+        log_prob_home = hg * np.log(lambda_home) - lambda_home - gammaln(hg + 1)
+        log_prob_away = ag * np.log(lambda_away) - lambda_away - gammaln(ag + 1)
         
-        # Return negative (for minimization)
-        return -log_lik
+        # Vectorized tau correction
+        tau = np.ones(len(hg))
+        
+        # 0-0: tau = 1 - lh * la * rho
+        mask_00 = (hg == 0) & (ag == 0)
+        tau[mask_00] = 1 - lambda_home[mask_00] * lambda_away[mask_00] * rho
+        
+        # 0-1: tau = 1 + lh * rho
+        mask_01 = (hg == 0) & (ag == 1)
+        tau[mask_01] = 1 + lambda_home[mask_01] * rho
+        
+        # 1-0: tau = 1 + la * rho
+        mask_10 = (hg == 1) & (ag == 0)
+        tau[mask_10] = 1 + lambda_away[mask_10] * rho
+        
+        # 1-1: tau = 1 - rho
+        mask_11 = (hg == 1) & (ag == 1)
+        tau[mask_11] = 1 - rho
+        
+        # Ensure tau is positive
+        tau = np.clip(tau, 1e-10, None)
+        
+        # Total log-likelihood (vectorized sum)
+        log_lik = np.sum(weights * (log_prob_home + log_prob_away + np.log(tau)))
+        
+        # Add regularization to enforce sum-to-zero constraints (soft constraint)
+        reg_attack = 0.1 * np.sum(attack) ** 2
+        reg_defense = 0.1 * np.sum(defense) ** 2
+        
+        # Return negative (for minimization) + regularization
+        return -log_lik + reg_attack + reg_defense
     
     def _constraint_attack(self, params: np.ndarray) -> float:
         """Constraint: sum of attack parameters = 0 (identifiability)."""
@@ -259,18 +276,18 @@ class DixonColesModel:
         bounds.append((0, 1))  # home_adv positive
         bounds.append((-0.5, 0.5))  # rho bounded
         
-        # Optimize
+        # Optimize using L-BFGS-B (much faster than SLSQP)
+        # Note: We use regularization instead of equality constraints for speed
         if verbose:
-            logger.info("Optimizing parameters...")
+            logger.info("Optimizing parameters with L-BFGS-B...")
         
         result = minimize(
             self._log_likelihood,
             x0,
             args=(home_idx, away_idx, home_goals, away_goals, weights),
-            method='SLSQP',
-            constraints=constraints,
+            method='L-BFGS-B',
             bounds=bounds,
-            options={'maxiter': 500, 'disp': verbose}
+            options={'maxiter': 200, 'disp': verbose, 'maxfun': 5000}
         )
         
         if not result.success:
@@ -574,7 +591,7 @@ def main():
     parser.add_argument(
         "--features",
         type=str,
-        default=str(PROCESSED_DATA_DIR / "features.csv"),
+        default=str(PROCESSED_DATA_DIR / "features_data_driven.csv"),
         help="Features CSV path"
     )
     parser.add_argument(

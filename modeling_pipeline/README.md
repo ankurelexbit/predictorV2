@@ -59,19 +59,20 @@ modeling_pipeline/
 
 ## Features
 
-### Base Features (53 total)
+### Base Features (`features.csv` - 53 features)
 - **Elo Ratings**: Team strength ratings with K=32
 - **Form**: Points, goals for/against over last 3/5/10 games
 - **Head-to-Head**: Historical results between teams
 - **Rest Days**: Days since last match
 - **League Position**: Current standings
 
-### Advanced Features (20 additional)
-Based on analysis of 14,019 matches, we discovered:
+### Enhanced Features (`features_data_driven.csv` - 73 total features)
+**This is the file used by all models** - includes base features + 20 advanced features:
 - **Optimal Activity**: Teams perform best with 2 games in 10 days
 - **Team Variance**: High-variance teams (Newcastle, Atalanta) vs consistent teams (Juventus, Sevilla)
 - **Tactical Flexibility**: Goal variance as a positive indicator
 - **Momentum**: Activity + Form combination
+- **Match Importance**: High-stakes match indicators
 
 ## Models
 
@@ -106,9 +107,11 @@ Our analysis of 14,019 matches revealed:
 
 This pipeline works entirely with CSV files - no database required:
 - `data/processed/matches.csv` - All historical matches
-- `data/processed/features.csv` - Base engineered features
-- `data/processed/features_data_driven.csv` - Enhanced features
+- `data/processed/features.csv` - Base engineered features (intermediate file)
+- `data/processed/features_data_driven.csv` - **Enhanced features (USED BY MODELS)**
 - `data/processed/elo_ratings.csv` - Current team ratings
+
+**Note**: All model scripts (04-08) use `features_data_driven.csv` by default, which includes both base and advanced features.
 
 ## Making Predictions
 
