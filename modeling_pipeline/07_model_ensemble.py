@@ -508,7 +508,7 @@ def main():
     parser.add_argument(
         "--features",
         type=str,
-        default=str(PROCESSED_DATA_DIR / "features.csv"),
+        default=str(PROCESSED_DATA_DIR / "features_data_driven.csv"),
         help="Features CSV path"
     )
     parser.add_argument(
@@ -561,7 +561,9 @@ def main():
     # Try loading Elo model
     elo_path = MODELS_DIR / "elo_model.joblib"
     if elo_path.exists():
-        from _04_model_baseline_elo import EloProbabilityModel
+        import importlib
+        elo_module = importlib.import_module('04_model_baseline_elo')
+        EloProbabilityModel = elo_module.EloProbabilityModel
         elo_model = EloProbabilityModel()
         elo_model.load(elo_path)
         models_loaded['elo'] = elo_model
@@ -582,7 +584,10 @@ def main():
     if dc_path.exists():
         try:
             dc_data = joblib.load(dc_path)
-            from _05_model_dixon_coles import DixonColesModel, CalibratedDixonColes
+            import importlib
+            dc_module = importlib.import_module('05_model_dixon_coles')
+            DixonColesModel = dc_module.DixonColesModel
+            CalibratedDixonColes = dc_module.CalibratedDixonColes
             
             base_model = DixonColesModel()
             base_model.attack = dc_data['base_model_data']['attack']
@@ -608,7 +613,9 @@ def main():
     xgb_path = MODELS_DIR / "xgboost_model.joblib"
     if xgb_path.exists():
         try:
-            from _06_model_xgboost import XGBoostFootballModel
+            import importlib
+            xgb_module = importlib.import_module('06_model_xgboost')
+            XGBoostFootballModel = xgb_module.XGBoostFootballModel
             xgb_model = XGBoostFootballModel()
             xgb_model.load(xgb_path)
             models_loaded['xgboost'] = xgb_model
