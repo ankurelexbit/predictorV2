@@ -1,0 +1,148 @@
+═══════════════════════════════════════════════════════════════════
+FOOTBALL PREDICTION PIPELINE - READY-TO-EXECUTE COMMANDS
+═══════════════════════════════════════════════════════════════════
+
+Copy and paste these commands to run the complete pipeline.
+
+═══════════════════════════════════════════════════════════════════
+STEP 1: ONE-TIME SETUP (2 minutes)
+═══════════════════════════════════════════════════════════════════
+
+# Navigate to project directory
+cd /Users/ankurgupta/code/predictorV2/modeling_pipeline
+
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment (macOS/Linux)
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# IMPORTANT: Edit config.py and add your Sportmonks API key
+# Open config.py and replace:
+#   SPORTMONKS_API_KEY = "your_api_key_here"
+# With your actual API key from https://www.sportmonks.com/
+
+═══════════════════════════════════════════════════════════════════
+STEP 2: RUN PIPELINE (26 minutes)
+═══════════════════════════════════════════════════════════════════
+
+Choose ONE of these options:
+
+--- OPTION A: Automated Script (Recommended) ---
+./run_pipeline.sh
+
+
+--- OPTION B: One-Line Command ---
+source venv/bin/activate && python 01_sportmonks_data_collection.py && python 02_sportmonks_feature_engineering.py && python 04_model_baseline_elo.py && python 05_model_dixon_coles.py && python 06_model_xgboost.py && python 07_model_ensemble.py && python 08_evaluation.py
+
+
+--- OPTION C: Step-by-Step (for debugging) ---
+source venv/bin/activate
+python 01_sportmonks_data_collection.py       # 6-8 min - collect data
+python 02_sportmonks_feature_engineering.py   # 30 sec - create features
+python 04_model_baseline_elo.py               # 2 sec  - train Elo
+python 05_model_dixon_coles.py                # 5 sec  - train Dixon-Coles
+python 06_model_xgboost.py                    # 5 sec  - train XGBoost
+python 07_model_ensemble.py                   # 3 sec  - create ensemble
+python 08_evaluation.py                       # 15 sec - evaluate models
+
+═══════════════════════════════════════════════════════════════════
+STEP 3: VERIFY SUCCESS
+═══════════════════════════════════════════════════════════════════
+
+# Check data files
+ls -lh data/raw/sportmonks/
+# Expected: fixtures.csv, lineups.csv, events.csv, sidelined.csv, standings.csv
+
+# Check features
+wc -l data/processed/sportmonks_features.csv
+# Expected: 2878 (2877 matches + header)
+
+# Check models
+ls models/*.joblib
+# Expected: 4 files (xgboost, elo, dixon_coles, ensemble)
+
+# Check performance
+grep "Log Loss" *.log | grep -i test
+# Expected: Test Log Loss around 0.998
+
+═══════════════════════════════════════════════════════════════════
+TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════════
+
+# If virtual environment not activated:
+source venv/bin/activate
+
+# If imports fail:
+pip install -r requirements.txt --force-reinstall
+
+# If API key errors:
+grep SPORTMONKS_API_KEY config.py
+# Should NOT show "your_api_key_here"
+
+# If permission denied on script:
+chmod +x run_pipeline.sh
+
+# Check detailed logs:
+tail -50 feature_engineering.log
+tail -50 collection_*.log
+
+═══════════════════════════════════════════════════════════════════
+EXPECTED RESULTS
+═══════════════════════════════════════════════════════════════════
+
+Data Collected:
+  ✓ 3,040 Premier League fixtures (2018-2026)
+  ✓ 111,805 player records
+  ✓ 41,501 match events
+  ✓ 24,827 injury/suspension records
+  ✓ 160 season standings
+
+Features Created:
+  ✓ 465 total features
+  ✓ 2,877 matches processed
+  ✓ 422 rolling statistics
+  ✓ 18 form features
+  ✓ 8 market features
+
+XGBoost Performance:
+  ✓ Test Log Loss: 0.998
+  ✓ Test Accuracy: 56.25%
+  ✓ Market Log Loss: 1.476
+  ✓ Edge: -0.478 (47.8% improvement!)
+
+═══════════════════════════════════════════════════════════════════
+REGULAR UPDATES (Weekly/Monthly)
+═══════════════════════════════════════════════════════════════════
+
+# Update with latest matches
+source venv/bin/activate
+python 01_sportmonks_data_collection.py
+python 02_sportmonks_feature_engineering.py
+python 06_model_xgboost.py
+
+═══════════════════════════════════════════════════════════════════
+DOCUMENTATION
+═══════════════════════════════════════════════════════════════════
+
+START_HERE.md    - Overview and quick start
+QUICKSTART.md    - Detailed execution guide
+README.md        - Complete documentation
+CHECKLIST.md     - Pre-execution verification
+COMMANDS.txt     - This file (copy-paste commands)
+config.py        - Configuration settings
+
+═══════════════════════════════════════════════════════════════════
+READY TO START?
+═══════════════════════════════════════════════════════════════════
+
+1. Activate venv: source venv/bin/activate
+2. Add API key to config.py
+3. Run: ./run_pipeline.sh
+4. Wait 26 minutes
+5. Check models/ directory for results!
+
+Good luck! ⚽🎯

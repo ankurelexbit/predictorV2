@@ -240,19 +240,19 @@ class DixonColesModel:
         logger.info(f"Fitting Dixon-Coles model on {len(df)} matches")
         
         # Build team index
-        teams = set(df['home_team'].unique()) | set(df['away_team'].unique())
+        teams = set(df['home_team_name'].unique()) | set(df['away_team_name'].unique())
         self.team_to_idx = {team: i for i, team in enumerate(sorted(teams))}
         self.idx_to_team = {i: team for team, i in self.team_to_idx.items()}
         n_teams = len(teams)
-        
+
         logger.info(f"Number of teams: {n_teams}")
-        
+
         # Prepare data
         df = df.copy()
         df['date'] = pd.to_datetime(df['date'])
-        
-        home_idx = df['home_team'].map(self.team_to_idx).values
-        away_idx = df['away_team'].map(self.team_to_idx).values
+
+        home_idx = df['home_team_name'].map(self.team_to_idx).values
+        away_idx = df['away_team_name'].map(self.team_to_idx).values
         home_goals = df['home_goals'].values
         away_goals = df['away_goals'].values
         
@@ -278,20 +278,39 @@ class DixonColesModel:
         
         # Optimize using L-BFGS-B (much faster than SLSQP)
         # Note: We use regularization instead of equality constraints for speed
+        # Increased limits for 150+ teams (300+ parameters)
         if verbose:
             logger.info("Optimizing parameters with L-BFGS-B...")
-        
+
         result = minimize(
             self._log_likelihood,
             x0,
             args=(home_idx, away_idx, home_goals, away_goals, weights),
             method='L-BFGS-B',
             bounds=bounds,
-            options={'maxiter': 200, 'disp': verbose, 'maxfun': 5000}
+            options={
+                'maxiter': 1000,      # Increased from 200
+                'maxfun': 20000,      # Increased from 5000
+                'ftol': 1e-6,         # Function tolerance
+                'gtol': 1e-5,         # Gradient tolerance
+                'disp': verbose
+            }
         )
-        
+
         if not result.success:
             logger.warning(f"Optimization did not converge: {result.message}")
+            # Try Powell method as fallback (doesn't need gradients)
+            if 'TOTAL NO. OF' in str(result.message):
+                logger.info("Retrying with Powell method...")
+                result = minimize(
+                    self._log_likelihood,
+                    result.x,  # Start from L-BFGS-B result
+                    args=(home_idx, away_idx, home_goals, away_goals, weights),
+                    method='Powell',
+                    options={'maxiter': 2000, 'maxfev': 50000, 'disp': verbose}
+                )
+                if result.success:
+                    logger.info("Powell method converged")
         
         # Extract parameters
         params = result.x
@@ -394,7 +413,7 @@ class DixonColesModel:
         probs = []
         
         for _, row in df.iterrows():
-            p_h, p_d, p_a = self.predict_1x2(row['home_team'], row['away_team'])
+            p_h, p_d, p_a = self.predict_1x2(row['home_team_name'], row['away_team_name'])
             probs.append([p_h, p_d, p_a])
         
         return np.array(probs)
@@ -616,13 +635,13 @@ def main():
     print(f"\nLoaded {len(features_df)} matches")
     
     # Filter to matches with results
-    mask = features_df['result_numeric'].notna()
+    mask = features_df['target'].notna()
     df = features_df[mask].copy()
     print(f"Matches with results: {len(df)}")
-    
+
     # Split by season
     train_df, val_df, test_df = season_based_split(
-        df, 'season',
+        df, 'season_name',
         TRAIN_SEASONS, VALIDATION_SEASONS, TEST_SEASONS
     )
     
@@ -652,9 +671,9 @@ def main():
     print(strengths.tail(10).to_string(index=False))
     
     # Get predictions
-    y_train = train_df['result_numeric'].values.astype(int)
-    y_val = val_df['result_numeric'].values.astype(int)
-    y_test = test_df['result_numeric'].values.astype(int)
+    y_train = train_df['target'].values.astype(int)
+    y_val = val_df['target'].values.astype(int)
+    y_test = test_df['target'].values.astype(int)
     
     # Evaluate raw model on validation
     print("\n" + "=" * 60)

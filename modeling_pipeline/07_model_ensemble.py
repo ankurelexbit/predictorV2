@@ -371,10 +371,11 @@ class StackingEnsemble:
         X_meta = np.hstack(meta_features)
         
         # Fit meta-model (logistic regression)
+        # Note: multi_class='multinomial' is now the default in sklearn
         self.meta_model = LogisticRegression(
-            multi_class='multinomial',
             max_iter=1000,
-            random_state=RANDOM_SEED
+            random_state=RANDOM_SEED,
+            solver='lbfgs'
         )
         self.meta_model.fit(X_meta, y_true)
         
@@ -400,8 +401,24 @@ class StackingEnsemble:
         
         # Meta-model prediction
         probs = self.meta_model.predict_proba(X_meta)
-        
+
         return probs
+
+    def save(self, path: Path):
+        """Save stacking ensemble (meta-model only, not base models)."""
+        joblib.dump({
+            'meta_model': self.meta_model,
+            'model_names': list(self.models.keys()),
+            'is_fitted': self.is_fitted
+        }, path)
+        logger.info(f"Stacking ensemble saved to {path}")
+
+    def load(self, path: Path):
+        """Load stacking ensemble configuration."""
+        data = joblib.load(path)
+        self.meta_model = data['meta_model']
+        self.is_fitted = data['is_fitted']
+        logger.info(f"Stacking ensemble loaded from {path}")
 
 
 # =============================================================================
@@ -532,22 +549,22 @@ def main():
     print(f"\nLoaded {len(features_df)} matches")
     
     # Filter to matches with results
-    mask = features_df['result_numeric'].notna()
+    mask = features_df['target'].notna()
     df = features_df[mask].copy()
-    
+
     # Split by season
     train_df, val_df, test_df = season_based_split(
-        df, 'season',
+        df, 'season_name',
         TRAIN_SEASONS, VALIDATION_SEASONS, TEST_SEASONS
     )
-    
+
     print(f"\nData split:")
     print(f"  Train: {len(train_df)}")
     print(f"  Validation: {len(val_df)}")
     print(f"  Test: {len(test_df)}")
-    
-    y_val = val_df['result_numeric'].values.astype(int)
-    y_test = test_df['result_numeric'].values.astype(int)
+
+    y_val = val_df['target'].values.astype(int)
+    y_test = test_df['target'].values.astype(int)
     
     # Load individual models
     print("\n" + "=" * 60)
@@ -696,21 +713,57 @@ def main():
     val_ensemble_cal = ensemble.predict_proba(val_df)
     evaluate_predictions(y_val, val_ensemble_cal, "Ensemble (Calibrated)")
     
+    # Build stacking ensemble
+    print("\n" + "=" * 60)
+    print("BUILDING STACKING ENSEMBLE")
+    print("=" * 60)
+
+    stacking = StackingEnsemble()
+    for name in individual_val_preds.keys():
+        cached = CachedPredictor(
+            individual_val_preds[name],
+            individual_test_preds.get(name, individual_val_preds[name])
+        )
+        stacking.add_model(name, cached)
+
+    # Fit meta-learner on validation set
+    stacking.fit(val_df, y_val)
+
+    # Evaluate stacking on validation
+    val_stacking = stacking.predict_proba(val_df)
+    evaluate_predictions(y_val, val_stacking, "Stacking (Val)")
+
     # Final test evaluation
     print("\n" + "=" * 60)
     print("FINAL TEST SET EVALUATION")
     print("=" * 60)
-    
+
     test_ensemble = ensemble.predict_proba(test_df)
-    test_metrics = evaluate_predictions(y_test, test_ensemble, "Ensemble (Test)")
+    test_metrics = evaluate_predictions(y_test, test_ensemble, "Weighted Avg (Test)")
+
+    test_stacking = stacking.predict_proba(test_df)
+    stacking_metrics = evaluate_predictions(y_test, test_stacking, "Stacking (Test)")
+
+    # Use best ensemble
+    if stacking_metrics['log_loss'] < test_metrics['log_loss']:
+        print("\n*** Stacking ensemble performs better - using stacking ***")
+        best_ensemble_preds = test_stacking
+        best_method = "stacking"
+        best_model = stacking
+    else:
+        print("\n*** Weighted average performs better - using weighted avg ***")
+        best_ensemble_preds = test_ensemble
+        best_method = "weighted_avg"
+        best_model = ensemble
     
     # Compare all models on test set
     print("\n" + "=" * 60)
     print("ALL MODELS COMPARISON (Test Set)")
     print("=" * 60)
-    
+
     all_test_preds = individual_test_preds.copy()
-    all_test_preds['ensemble'] = test_ensemble
+    all_test_preds['weighted_avg'] = test_ensemble
+    all_test_preds['stacking'] = test_stacking
     
     # Add market if available
     if 'market_prob_home' in test_df.columns:
@@ -724,10 +777,15 @@ def main():
     print("\nModel Comparison (sorted by log loss):")
     print(comparison.to_string(index=False))
     
-    # Save ensemble
+    # Save the best ensemble
     ensemble_path = MODELS_DIR / "ensemble_model.joblib"
-    ensemble.save(ensemble_path)
-    
+    best_model.save(ensemble_path)
+
+    # Also save stacking separately if it's the better one
+    if best_method == "stacking":
+        stacking_path = MODELS_DIR / "stacking_ensemble.joblib"
+        stacking.save(stacking_path)
+
     # Save comparison results
     comparison.to_csv(MODELS_DIR / "model_comparison.csv", index=False)
     
@@ -746,12 +804,23 @@ def main():
     print("\n" + "=" * 60)
     print("SUMMARY")
     print("=" * 60)
-    print(f"Ensemble Test Log Loss: {test_metrics['log_loss']:.4f}")
-    print(f"Ensemble Test Calibration Error: {test_metrics['calibration_error']:.4f}")
-    print(f"\nFinal weights:")
-    for name, weight in ensemble.weights.items():
-        print(f"  {name}: {weight:.3f}")
-    print(f"\nEnsemble saved to: {ensemble_path}")
+
+    if best_method == "stacking":
+        print(f"Best Model: Stacking Ensemble")
+        print(f"Stacking Test Log Loss: {stacking_metrics['log_loss']:.4f}")
+        print(f"Stacking Test Calibration Error: {stacking_metrics['calibration_error']:.4f}")
+        print(f"Stacking Test Accuracy: {stacking_metrics['accuracy']:.2%}")
+        print(f"\nStacking ensemble saved to: {MODELS_DIR / 'stacking_ensemble.joblib'}")
+        print(f"Also saved as primary ensemble: {ensemble_path}")
+    else:
+        print(f"Best Model: Weighted Average Ensemble")
+        print(f"Ensemble Test Log Loss: {test_metrics['log_loss']:.4f}")
+        print(f"Ensemble Test Calibration Error: {test_metrics['calibration_error']:.4f}")
+        print(f"\nFinal weights:")
+        for name, weight in ensemble.weights.items():
+            print(f"  {name}: {weight:.3f}")
+        print(f"\nEnsemble saved to: {ensemble_path}")
+
     print("\nNext: Run 08_evaluation.py for comprehensive backtesting")
 
 

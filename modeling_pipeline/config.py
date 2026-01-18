@@ -142,9 +142,9 @@ ROLLING_WINDOWS = [5, 10, 20]  # Matches
 # =============================================================================
 
 # Train/validation/test split
-TRAIN_SEASONS = ["2019-2020", "2020-2021", "2021-2022"]
-VALIDATION_SEASONS = ["2022-2023"]
-TEST_SEASONS = ["2023-2024"]
+TRAIN_SEASONS = ["2019/2020", "2020/2021", "2021/2022"]
+VALIDATION_SEASONS = ["2022/2023"]
+TEST_SEASONS = ["2023/2024"]
 
 # XGBoost hyperparameters
 XGBOOST_PARAMS = {

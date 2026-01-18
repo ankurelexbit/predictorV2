@@ -66,9 +66,10 @@ class EloProbabilityModel:
     This class provides a sklearn-like interface for consistency.
     """
     
-    def __init__(self):
+    def __init__(self, home_advantage=100):
         self.calibrators = {}  # One per class
         self.is_calibrated = False
+        self.home_advantage = home_advantage
     
     def predict_proba(
         self,
@@ -77,24 +78,46 @@ class EloProbabilityModel:
     ) -> np.ndarray:
         """
         Get 1X2 probabilities from Elo ratings.
-        
+
         Args:
-            features_df: DataFrame with elo_prob_home, elo_prob_draw, elo_prob_away
+            features_df: DataFrame with home_elo, away_elo
             calibrated: Whether to apply calibration
-        
+
         Returns:
-            Array of shape (n_samples, 3) with probabilities
+            Array of shape (n_samples, 3) with probabilities [away, draw, home]
         """
-        # Extract raw Elo probabilities
-        probs = features_df[['elo_prob_home', 'elo_prob_draw', 'elo_prob_away']].values
-        
+        # Calculate probabilities from raw Elo ratings
+        home_rating = features_df['home_elo'].values + self.home_advantage
+        away_rating = features_df['away_elo'].values
+
+        elo_diff = home_rating - away_rating
+
+        # Base expected score using Elo formula
+        exp_home = 1 / (1 + 10 ** (-elo_diff / 400))
+
+        # Draw probability estimation
+        # Higher when teams are closely matched, lower when big gap
+        base_draw_rate = 0.26
+        elo_draw_factor = 1 - (np.abs(elo_diff) / 800)
+        elo_draw_factor = np.clip(elo_draw_factor, 0.5, 1.2)
+
+        p_draw = base_draw_rate * elo_draw_factor
+
+        # Allocate remaining probability
+        remaining = 1 - p_draw
+        p_home = remaining * exp_home
+        p_away = remaining * (1 - exp_home)
+
+        # Stack into (n_samples, 3) array with order [away, draw, home]
+        probs = np.column_stack([p_away, p_draw, p_home])
+
         if calibrated and self.is_calibrated:
             probs = self._calibrate(probs)
-        
+
         # Ensure valid probabilities
         probs = np.clip(probs, 0.001, 0.999)
         probs = probs / probs.sum(axis=1, keepdims=True)
-        
+
         return probs
     
     def calibrate(
@@ -447,17 +470,18 @@ def main():
     
     print(f"\nLoaded {len(features_df)} matches")
     
-    # Filter to matches with results and Elo predictions
+    # Filter to matches with results and Elo ratings
     mask = (
-        features_df['result_numeric'].notna() & 
-        features_df['elo_prob_home'].notna()
+        features_df['target'].notna() &
+        features_df['home_elo'].notna() &
+        features_df['away_elo'].notna()
     )
     df = features_df[mask].copy()
     print(f"Matches with Elo predictions: {len(df)}")
     
     # Split by season
     train_df, val_df, test_df = season_based_split(
-        df, 'season',
+        df, 'season_name',
         TRAIN_SEASONS, VALIDATION_SEASONS, TEST_SEASONS
     )
     
@@ -470,9 +494,9 @@ def main():
     model = EloProbabilityModel()
     
     # Get raw predictions
-    y_train = train_df['result_numeric'].values.astype(int)
-    y_val = val_df['result_numeric'].values.astype(int)
-    y_test = test_df['result_numeric'].values.astype(int)
+    y_train = train_df['target'].values.astype(int)
+    y_val = val_df['target'].values.astype(int)
+    y_test = test_df['target'].values.astype(int)
     
     print("\n" + "=" * 60)
     print("UNCALIBRATED ELO PREDICTIONS")
