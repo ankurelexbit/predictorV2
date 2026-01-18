@@ -35,7 +35,7 @@ for dir_path in [DATA_DIR, RAW_DATA_DIR, PROCESSED_DATA_DIR, MODELS_DIR, LOGS_DI
 # Database - Supabase PostgreSQL
 # Get your Supabase connection string from: https://supabase.com/dashboard/project/YOUR_PROJECT/settings/database
 # Format: postgresql://postgres.[project-ref]:[password]@[host]:5432/postgres
-SUPABASE_DB_HOST = os.getenv("SUPABASE_DB_HOST", "db.rokhkbxbgwgfchamlbuh.supabase.co")
+SUPABASE_DB_HOST = os.getenv("SUPABASE_DB_HOST", "db.anywwunpudikhtpmkuhh.supabase.co")
 SUPABASE_DB_PASSWORD = os.getenv("SUPABASE_DB_PASSWORD", "Danbrown1989!!")
 SUPABASE_DB_USER = os.getenv("SUPABASE_DB_USER", "postgres")
 SUPABASE_DB_PORT = os.getenv("SUPABASE_DB_PORT", "5432")

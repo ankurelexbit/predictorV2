@@ -816,6 +816,25 @@ def prepare_model_data(
 # MAIN EXECUTION
 # =============================================================================
 
+def clean_features(features_df):
+    """Clean features by capping extreme values."""
+    logger.info("Cleaning features...")
+    
+    # Cap rest days at 90 (3 months - reasonable summer break)
+    original_max_home = features_df['home_rest_days'].max()
+    original_max_away = features_df['away_rest_days'].max()
+    
+    features_df['home_rest_days'] = features_df['home_rest_days'].clip(upper=90)
+    features_df['away_rest_days'] = features_df['away_rest_days'].clip(upper=90)
+    features_df['rest_diff'] = features_df['rest_diff'].clip(lower=-90, upper=90)
+    
+    # Log changes
+    if original_max_home > 90 or original_max_away > 90:
+        logger.info(f"Capped rest days: home {original_max_home:.0f}→90, away {original_max_away:.0f}→90")
+    
+    return features_df
+
+
 def main():
     """Build features from processed match data."""
     import argparse
@@ -833,6 +852,26 @@ def main():
         default=str(PROCESSED_DATA_DIR / "features.csv"),
         help="Output features CSV"
     )
+    parser.add_argument(
+        "--check-quality",
+        action="store_true",
+        help="Run data quality checks after feature engineering"
+    )
+    parser.add_argument(
+        "--no-clean",
+        action="store_true",
+        help="Skip cleaning step (keep extreme values)"
+    )
+    parser.add_argument(
+        "--store-db",
+        action="store_true",
+        help="Store features in database after generation"
+    )
+    parser.add_argument(
+        "--clear-db",
+        action="store_true",
+        help="Clear existing features in database before storing (requires --store-db)"
+    )
     
     args = parser.parse_args()
     
@@ -844,6 +883,10 @@ def main():
     # Build features
     builder = FeatureBuilder()
     features_df = builder.build_features(matches_df)
+    
+    # Clean features (unless skipped)
+    if not args.no_clean:
+        features_df = clean_features(features_df)
     
     # Save features
     output_path = Path(args.output)
@@ -877,6 +920,61 @@ def main():
     
     print("\nBottom 10 teams by Elo:")
     print(elo_df.tail(10).to_string(index=False))
+    
+    # Run data quality checks if requested
+    if args.check_quality:
+        print("\n" + "=" * 60)
+        print("Running data quality checks...")
+        print("=" * 60)
+        
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["python", "check_data_quality.py"],
+                cwd=Path(__file__).parent,
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                print("✅ Data quality checks completed successfully")
+                print("\nCheck data/processed/data_quality_report.txt for details")
+            else:
+                print("❌ Data quality checks failed:")
+                print(result.stderr)
+        except Exception as e:
+            print(f"⚠️  Could not run data quality checks: {e}")
+    
+    # Store features in database if requested
+    if args.store_db:
+        print("\n" + "=" * 60)
+        print("Storing features in database...")
+        print("=" * 60)
+        
+        try:
+            import subprocess
+            cmd = ["python", "store_features_to_db.py", "--file", output_path.name]
+            
+            # Add clear flag if requested
+            if args.clear_db:
+                cmd.append("--clear")
+            
+            result = subprocess.run(
+                cmd,
+                cwd=Path(__file__).parent,
+                capture_output=True,
+                text=True
+            )
+            
+            if result.returncode == 0:
+                print("✅ Features stored in database successfully")
+                # Print the output from the storage script
+                if result.stdout:
+                    print(result.stdout)
+            else:
+                print("❌ Failed to store features in database:")
+                print(result.stderr)
+        except Exception as e:
+            print(f"⚠️  Could not store features in database: {e}")
 
 
 if __name__ == "__main__":
