@@ -28,6 +28,7 @@ import argparse
 import requests
 import urllib3
 from collections import defaultdict
+import importlib.util
 
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -38,6 +39,16 @@ sys.path.insert(0, str(Path(__file__).parent))
 from config import MODELS_DIR
 from fetch_standings import get_team_standings
 from utils import setup_logger
+from player_stats_manager import PlayerStatsManager
+
+# Import betting strategy (dynamic import to handle numeric prefix in filename)
+spec = importlib.util.spec_from_file_location(
+    "betting_strategy",
+    Path(__file__).parent / "11_smart_betting_strategy.py"
+)
+betting_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(betting_module)
+SmartMultiOutcomeStrategy = betting_module.SmartMultiOutcomeStrategy
 
 # Setup
 logger = setup_logger("predict_live")
@@ -77,6 +88,13 @@ class LiveFeatureCalculator:
         else:
             logger.warning(f"Position/points file not found: {position_points_file}")
             self.position_points = {}
+
+        # Initialize player stats manager
+        self.player_manager = PlayerStatsManager()
+        if self.player_manager.is_loaded:
+            logger.info("✅ Player database loaded - will use real lineup data when available")
+        else:
+            logger.warning("⚠️ Player database not loaded - will use approximations for player stats")
 
     def _api_call(self, endpoint: str, params: Dict = None) -> Optional[Dict]:
         """Make API call with error handling."""
@@ -205,6 +223,171 @@ class LiveFeatureCalculator:
 
         logger.info(f"Found {len(matches)} recent matches")
         return matches
+
+    def search_fixture_by_teams(
+        self,
+        home_team_name: str,
+        away_team_name: str,
+        days_ahead: int = 7
+    ) -> Optional[Dict]:
+        """
+        Search for a fixture by team names.
+
+        Args:
+            home_team_name: Home team name (e.g., "Man City", "Liverpool")
+            away_team_name: Away team name
+            days_ahead: Search within next N days (default: 7)
+
+        Returns:
+            Dictionary with fixture details including fixture_id, or None if not found
+        """
+        try:
+            # Get upcoming fixtures
+            today = datetime.now()
+            end_date = today + timedelta(days=days_ahead)
+
+            # Fetch fixtures in date range
+            response = self._api_call(
+                f"fixtures/between/{today.strftime('%Y-%m-%d')}/{end_date.strftime('%Y-%m-%d')}",
+                params={'include': 'participants'}
+            )
+
+            if not response or 'data' not in response:
+                logger.warning("No fixtures found in date range")
+                return None
+
+            # Normalize team names for matching
+            home_normalized = home_team_name.lower().strip()
+            away_normalized = away_team_name.lower().strip()
+
+            # Search through fixtures
+            for fixture in response['data']:
+                participants = fixture.get('participants', [])
+                if len(participants) < 2:
+                    continue
+
+                home_team = next((p for p in participants if p.get('meta', {}).get('location') == 'home'), None)
+                away_team = next((p for p in participants if p.get('meta', {}).get('location') != 'home'), None)
+
+                if not home_team or not away_team:
+                    continue
+
+                # Get team names and normalize
+                fixture_home_name = home_team.get('name', '').lower().strip()
+                fixture_away_name = away_team.get('name', '').lower().strip()
+
+                # Check for match (exact or partial match)
+                home_match = (
+                    home_normalized in fixture_home_name or
+                    fixture_home_name in home_normalized or
+                    home_normalized.replace(' ', '') == fixture_home_name.replace(' ', '')
+                )
+
+                away_match = (
+                    away_normalized in fixture_away_name or
+                    fixture_away_name in away_normalized or
+                    away_normalized.replace(' ', '') == fixture_away_name.replace(' ', '')
+                )
+
+                if home_match and away_match:
+                    logger.info(f"✅ Found fixture: {home_team['name']} vs {away_team['name']}")
+                    logger.info(f"   Fixture ID: {fixture['id']}")
+                    logger.info(f"   Date: {fixture.get('starting_at')}")
+
+                    return {
+                        'fixture_id': fixture['id'],
+                        'date': fixture.get('starting_at'),
+                        'home_team_id': home_team['id'],
+                        'home_team_name': home_team['name'],
+                        'away_team_id': away_team['id'],
+                        'away_team_name': away_team['name'],
+                        'league_name': fixture.get('league', {}).get('name', 'Unknown'),
+                        'venue': fixture.get('venue', {}).get('name', 'Unknown') if fixture.get('venue') else 'Unknown'
+                    }
+
+            logger.warning(f"No fixture found matching: {home_team_name} vs {away_team_name}")
+            logger.info("Searched fixtures:")
+            for fixture in response['data'][:10]:  # Show first 10
+                participants = fixture.get('participants', [])
+                if len(participants) >= 2:
+                    home = next((p for p in participants if p.get('meta', {}).get('location') == 'home'), {})
+                    away = next((p for p in participants if p.get('meta', {}).get('location') != 'home'), {})
+                    logger.info(f"  - {home.get('name', 'Unknown')} vs {away.get('name', 'Unknown')}")
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error searching for fixture: {e}")
+            return None
+
+    def get_fixture_lineups(self, fixture_id: int) -> Optional[Dict]:
+        """
+        Fetch lineups for a specific fixture.
+
+        Args:
+            fixture_id: Fixture ID
+
+        Returns:
+            Dictionary with home and away player IDs, or None if not available
+        """
+        try:
+            response = self._api_call(f"fixtures/{fixture_id}", params={
+                'include': 'lineups'
+            })
+
+            if not response or 'data' not in response:
+                return None
+
+            fixture = response['data']
+            lineups = fixture.get('lineups', [])
+
+            if not lineups:
+                logger.debug(f"No lineups available for fixture {fixture_id}")
+                return None
+
+            # Extract home and away team IDs
+            participants = fixture.get('participants', [])
+            home_team_id = None
+            away_team_id = None
+
+            for p in participants:
+                if p.get('meta', {}).get('location') == 'home':
+                    home_team_id = p.get('id')
+                else:
+                    away_team_id = p.get('id')
+
+            # Group lineups by team
+            home_player_ids = []
+            away_player_ids = []
+
+            for lineup in lineups:
+                player_id = lineup.get('player_id')
+                team_id = lineup.get('team_id')
+                type_id = lineup.get('type_id')  # 11 = starter, 12 = substitute
+
+                # Only include starters
+                if type_id == 11 and player_id:
+                    if team_id == home_team_id:
+                        home_player_ids.append(player_id)
+                    elif team_id == away_team_id:
+                        away_player_ids.append(player_id)
+
+            if not home_player_ids or not away_player_ids:
+                logger.debug(f"Incomplete lineups for fixture {fixture_id}")
+                return None
+
+            logger.info(f"✅ Found lineups: {len(home_player_ids)} home, {len(away_player_ids)} away")
+
+            return {
+                'home_player_ids': home_player_ids,
+                'away_player_ids': away_player_ids,
+                'home_team_id': home_team_id,
+                'away_team_id': away_team_id
+            }
+
+        except Exception as e:
+            logger.warning(f"Error fetching lineups for fixture {fixture_id}: {e}")
+            return None
 
     def _parse_statistics(self, stats: List[Dict]) -> Dict:
         """Parse statistics from API format to usable dict."""
@@ -471,7 +654,8 @@ class LiveFeatureCalculator:
         fixture_date: datetime,
         home_team_name: str = None,
         away_team_name: str = None,
-        league_name: str = None
+        league_name: str = None,
+        fixture_id: int = None
     ) -> Optional[Dict]:
         """
         Build complete feature vector for a match using live API data.
@@ -483,11 +667,24 @@ class LiveFeatureCalculator:
             home_team_name: Home team name (for standings lookup)
             away_team_name: Away team name (for standings lookup)
             league_name: League name (for standings lookup)
+            fixture_id: Optional fixture ID (for fetching lineups)
 
         Returns:
             Dictionary of features or None if data unavailable
         """
         logger.info(f"Building features for match: {home_team_id} vs {away_team_id}")
+
+        # Try to fetch lineups if fixture_id provided
+        lineups_data = None
+        use_real_player_data = False
+
+        if fixture_id and self.player_manager.is_loaded:
+            lineups_data = self.get_fixture_lineups(fixture_id)
+            if lineups_data:
+                use_real_player_data = True
+                logger.info("✅ Using REAL player data from lineups")
+            else:
+                logger.info("⚠️ Lineups not available, using approximations")
 
         # Fetch recent matches for both teams
         home_matches = self.get_team_recent_matches(home_team_id, limit=15)
@@ -761,6 +958,41 @@ class LiveFeatureCalculator:
         h2h = self.calculate_h2h(home_team_id, away_team_id)
         features.update(h2h)
 
+        # Override player stats with REAL data from lineups if available
+        if use_real_player_data and lineups_data:
+            logger.info("📊 Replacing approximations with real player statistics from lineup")
+
+            # Get real player stats for home team
+            home_player_features = self.player_manager.build_feature_dict_from_lineup(
+                lineups_data['home_player_ids'],
+                prefix='home'
+            )
+
+            # Get real player stats for away team
+            away_player_features = self.player_manager.build_feature_dict_from_lineup(
+                lineups_data['away_player_ids'],
+                prefix='away'
+            )
+
+            # Update features with real player data (replaces approximations)
+            features.update(home_player_features)
+            features.update(away_player_features)
+
+            # Get lineup quality scores for logging
+            home_quality = self.player_manager.get_lineup_quality_score(
+                lineups_data['home_player_ids']
+            )
+            away_quality = self.player_manager.get_lineup_quality_score(
+                lineups_data['away_player_ids']
+            )
+
+            logger.info(f"  Home lineup: {home_quality['players_found']}/{len(lineups_data['home_player_ids'])} "
+                       f"players found ({home_quality['coverage_pct']:.1f}% coverage), "
+                       f"avg rating: {home_quality['avg_rating']:.2f}")
+            logger.info(f"  Away lineup: {away_quality['players_found']}/{len(lineups_data['away_player_ids'])} "
+                       f"players found ({away_quality['coverage_pct']:.1f}% coverage), "
+                       f"avg rating: {away_quality['avg_rating']:.2f}")
+
         # Add contextual features
         # Derive season name from date (July-June season)
         year = fixture_date.year
@@ -984,6 +1216,14 @@ def main():
         help="Date to predict (today, tomorrow, or YYYY-MM-DD)"
     )
     parser.add_argument(
+        "--home",
+        help="Home team name (e.g., 'Man City', 'Liverpool')"
+    )
+    parser.add_argument(
+        "--away",
+        help="Away team name (e.g., 'Arsenal', 'Chelsea')"
+    )
+    parser.add_argument(
         "--output",
         help="Output CSV file path (optional)"
     )
@@ -993,32 +1233,76 @@ def main():
         choices=["xgboost", "stacking"],
         help="Model to use for predictions (default: stacking)"
     )
+    parser.add_argument(
+        "--bankroll",
+        type=float,
+        default=1000.0,
+        help="Initial bankroll for betting strategy (default: 1000)"
+    )
+    parser.add_argument(
+        "--no-betting",
+        action="store_true",
+        help="Disable betting strategy recommendations"
+    )
 
     args = parser.parse_args()
 
-    # Parse date
-    if args.date.lower() == "today":
-        target_date = datetime.now().date()
-    elif args.date.lower() == "tomorrow":
-        target_date = (datetime.now() + timedelta(days=1)).date()
+    # Check if team names provided (--home and --away)
+    if args.home and args.away:
+        print("=" * 80)
+        print(f"SEARCHING FOR: {args.home} vs {args.away}")
+        print("Using real-time API data")
+        print("=" * 80)
+
+        # Initialize calculator to search for fixture
+        calculator = LiveFeatureCalculator()
+
+        # Search for the fixture
+        fixture_info = calculator.search_fixture_by_teams(args.home, args.away, days_ahead=14)
+
+        if not fixture_info:
+            print(f"\n❌ ERROR: Could not find fixture matching:")
+            print(f"   Home: {args.home}")
+            print(f"   Away: {args.away}")
+            print(f"\nTips:")
+            print("- Check team name spelling (e.g., 'Man City' or 'Manchester City')")
+            print("- Ensure match is within next 14 days")
+            print("- Try with abbreviated names (e.g., 'Liverpool' instead of 'Liverpool FC')")
+            return
+
+        # Convert to fixtures_df format
+        fixtures_df = pd.DataFrame([fixture_info])
+
+        print(f"\n✅ Found fixture:")
+        print(f"   {fixture_info['home_team_name']} vs {fixture_info['away_team_name']}")
+        print(f"   Date: {fixture_info['date']}")
+        print(f"   League: {fixture_info['league_name']}")
+        print(f"   Fixture ID: {fixture_info['fixture_id']}")
+
     else:
-        target_date = datetime.strptime(args.date, "%Y-%m-%d").date()
+        # Parse date
+        if args.date.lower() == "today":
+            target_date = datetime.now().date()
+        elif args.date.lower() == "tomorrow":
+            target_date = (datetime.now() + timedelta(days=1)).date()
+        else:
+            target_date = datetime.strptime(args.date, "%Y-%m-%d").date()
 
-    date_str = target_date.strftime("%Y-%m-%d")
+        date_str = target_date.strftime("%Y-%m-%d")
 
-    print("=" * 80)
-    print(f"LIVE MATCH PREDICTIONS FOR {date_str}")
-    print("Using real-time API data")
-    print("=" * 80)
+        print("=" * 80)
+        print(f"LIVE MATCH PREDICTIONS FOR {date_str}")
+        print("Using real-time API data")
+        print("=" * 80)
 
-    # Get fixtures
-    fixtures_df = get_upcoming_fixtures(date_str)
+        # Get fixtures
+        fixtures_df = get_upcoming_fixtures(date_str)
 
-    if fixtures_df.empty:
-        print(f"\nNo fixtures found for {date_str}")
-        return
+        if fixtures_df.empty:
+            print(f"\nNo fixtures found for {date_str}")
+            return
 
-    print(f"\nFound {len(fixtures_df)} fixtures")
+        print(f"\nFound {len(fixtures_df)} fixtures")
 
     # Load models
     print("\nLoading models...")
@@ -1031,15 +1315,27 @@ def main():
     model_name = args.model
     model = models.get(model_name)
 
-    # Initialize feature calculator
+    # Initialize feature calculator (used for both search and feature building)
     calculator = LiveFeatureCalculator()
+
+    # Initialize betting strategy
+    betting_strategy = None
+    current_bankroll = args.bankroll
+    if not args.no_betting:
+        betting_strategy = SmartMultiOutcomeStrategy(bankroll=current_bankroll)
+        print(f"\n💰 Betting Strategy Enabled (Bankroll: £{current_bankroll:,.2f})")
+        print("   Rules: Away ≥50% | Draw (teams within 5%) | Home ≥51%")
 
     # Make predictions
     print("\n" + "=" * 80)
     print("PREDICTIONS (using live API data)")
+    if betting_strategy:
+        print("with BETTING RECOMMENDATIONS")
     print("=" * 80)
 
     predictions = []
+    total_bets = 0
+    total_staked = 0.0
 
     for idx, fixture in fixtures_df.iterrows():
         print(f"\n{fixture['league_name']}")
@@ -1054,7 +1350,8 @@ def main():
                 pd.to_datetime(fixture['date']),
                 home_team_name=fixture['home_team_name'],
                 away_team_name=fixture['away_team_name'],
-                league_name=fixture['league_name']
+                league_name=fixture['league_name'],
+                fixture_id=fixture.get('fixture_id')  # For lineup fetching
             )
 
             if not features:
@@ -1095,14 +1392,57 @@ def main():
                 'data_source': 'live_api'
             }
 
-            predictions.append(result)
-
             print(f"  Model: {model_name}")
             print(f"  Home Win: {result['home_win_prob']:.1%}")
             print(f"  Draw:     {result['draw_prob']:.1%}")
             print(f"  Away Win: {result['away_win_prob']:.1%}")
             print(f"  → Prediction: {result['predicted_outcome']}")
             print(f"  ✨ Using live API data")
+
+            # Apply betting strategy
+            if betting_strategy:
+                match_data = {
+                    'match_id': f"{fixture['date']}_{fixture['home_team_name']}_{fixture['away_team_name']}",
+                    'date': str(fixture['date']),
+                    'home_team': fixture['home_team_name'],
+                    'away_team': fixture['away_team_name'],
+                    'home_prob': result['home_win_prob'],
+                    'draw_prob': result['draw_prob'],
+                    'away_prob': result['away_win_prob']
+                }
+
+                # Update strategy bankroll
+                betting_strategy.bankroll = current_bankroll
+
+                # Get betting recommendations
+                bet_recommendations = betting_strategy.evaluate_match(match_data)
+
+                if bet_recommendations:
+                    for bet in bet_recommendations:
+                        print(f"\n  💡 BET RECOMMENDATION:")
+                        print(f"     Bet: {bet.bet_outcome}")
+                        print(f"     Stake: £{bet.stake:.2f}")
+                        print(f"     Fair Odds: {bet.fair_odds:.2f}")
+                        print(f"     Expected Value: £{bet.expected_value:+.2f}")
+                        print(f"     Rule: {bet.rule_applied}")
+
+                        # Update tracking
+                        total_bets += 1
+                        total_staked += bet.stake
+                        current_bankroll -= bet.stake
+
+                        # Add betting info to result
+                        result['bet_placed'] = True
+                        result['bet_outcome'] = bet.bet_outcome
+                        result['bet_stake'] = bet.stake
+                        result['bet_odds'] = bet.fair_odds
+                        result['bet_ev'] = bet.expected_value
+                        result['bet_rule'] = bet.rule_applied
+                        result['bankroll_after'] = current_bankroll
+                else:
+                    result['bet_placed'] = False
+
+            predictions.append(result)
 
         except Exception as e:
             logger.error(f"Prediction error: {e}")
@@ -1125,6 +1465,20 @@ def main():
     print("\n" + "=" * 80)
     print(f"Completed {len(predictions)} predictions using live API data")
     print("=" * 80)
+
+    # Betting strategy summary
+    if betting_strategy and total_bets > 0:
+        print("\n" + "=" * 80)
+        print("BETTING STRATEGY SUMMARY")
+        print("=" * 80)
+        print(f"Total Bets Placed: {total_bets}")
+        print(f"Total Staked: £{total_staked:,.2f}")
+        print(f"Remaining Bankroll: £{current_bankroll:,.2f}")
+        print(f"Amount at Risk: £{total_staked:,.2f} ({total_staked/args.bankroll*100:.1f}% of initial)")
+        print(f"\nNote: These are paper trading recommendations.")
+        print(f"Track actual results to calculate real ROI.")
+    elif betting_strategy and total_bets == 0:
+        print("\n💡 No betting opportunities met strategy criteria.")
 
 
 if __name__ == "__main__":
