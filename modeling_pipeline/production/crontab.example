@@ -1,0 +1,29 @@
+# Football Prediction Production Cron Jobs
+# ==========================================
+#
+# Install these cron jobs with:
+#   crontab -e
+# Then paste the lines below (adjust paths as needed)
+
+# Set environment variables
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+PYTHONPATH=/Users/ankurgupta/code/predictorV2/modeling_pipeline
+
+# Weekly training - Every Sunday at 2 AM
+0 2 * * 0 cd /Users/ankurgupta/code/predictorV2/modeling_pipeline/production && python weekly_training.py >> /var/log/football-predictions/weekly_training.log 2>&1
+
+# Hourly predictions - Every hour
+0 * * * * cd /Users/ankurgupta/code/predictorV2/modeling_pipeline/production && python hourly_predictions.py >> /var/log/football-predictions/hourly_predictions.log 2>&1
+
+# Lineup check - Every 15 minutes (for matches <2h away)
+*/15 * * * * cd /Users/ankurgupta/code/predictorV2/modeling_pipeline/production && python hourly_predictions.py --lineup-check-only >> /var/log/football-predictions/lineup_check.log 2>&1
+
+# Results settlement - Every 30 minutes
+*/30 * * * * cd /Users/ankurgupta/code/predictorV2/modeling_pipeline/production && python settle_results.py >> /var/log/football-predictions/settle_results.log 2>&1
+
+# Database cleanup - Daily at 3 AM
+0 3 * * * cd /Users/ankurgupta/code/predictorV2/modeling_pipeline/production && python cleanup_old_data.py --days 90 >> /var/log/football-predictions/cleanup.log 2>&1
+
+# Health check - Every 5 minutes
+*/5 * * * * cd /Users/ankurgupta/code/predictorV2/modeling_pipeline/production && python health_check.py >> /var/log/football-predictions/health_check.log 2>&1
