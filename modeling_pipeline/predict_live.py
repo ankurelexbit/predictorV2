@@ -36,6 +36,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config import MODELS_DIR
+from fetch_standings import get_team_standings
 from utils import setup_logger
 
 # Setup
@@ -55,7 +56,27 @@ class LiveFeatureCalculator:
 
     def __init__(self, api_key: str = API_KEY):
         self.api_key = api_key
-        self.elo_ratings = {}  # Cache Elo ratings
+        # Load pre-computed Elo ratings from training data
+        elo_file = Path(__file__).parent / 'data' / 'processed' / 'team_elo_ratings.json'
+        if elo_file.exists():
+            import json
+            with open(elo_file, 'r') as f:
+                self.elo_ratings = {int(k): v for k, v in json.load(f).items()}
+            logger.info(f"Loaded Elo ratings for {len(self.elo_ratings)} teams")
+        else:
+            logger.warning(f"Elo ratings file not found: {elo_file}")
+            self.elo_ratings = {}
+
+        # Load position and points lookup (actual data from training)
+        position_points_file = Path(__file__).parent / 'data' / 'processed' / 'team_position_points.json'
+        if position_points_file.exists():
+            import json
+            with open(position_points_file, 'r') as f:
+                self.position_points = {int(k): v for k, v in json.load(f).items()}
+            logger.info(f"Loaded position/points data for {len(self.position_points)} teams")
+        else:
+            logger.warning(f"Position/points file not found: {position_points_file}")
+            self.position_points = {}
 
     def _api_call(self, endpoint: str, params: Dict = None) -> Optional[Dict]:
         """Make API call with error handling."""
@@ -87,7 +108,7 @@ class LiveFeatureCalculator:
         # Use teams endpoint with latest matches included
         endpoint = f"teams/{team_id}"
         params = {
-            'include': 'latest.statistics;latest.participants'
+            'include': 'latest.statistics;latest.participants;latest.scores'
         }
 
         data = self._api_call(endpoint, params)
@@ -149,8 +170,22 @@ class LiveFeatureCalculator:
                 home_team_name = home_participant.get('name', 'Unknown')
                 away_team_id = away_participant.get('id')
                 away_team_name = away_participant.get('name', 'Unknown')
-                home_score = home_participant.get('meta', {}).get('goals', 0)
-                away_score = away_participant.get('meta', {}).get('goals', 0)
+
+                # Extract scores from scores array (type_id 1525 = CURRENT/final score)
+                scores = fixture.get('scores', [])
+                home_score = 0
+                away_score = 0
+
+                for score in scores:
+                    if score.get('type_id') == 1525:  # CURRENT score
+                        score_data = score.get('score', {})
+                        goals = score_data.get('goals', 0)
+                        participant = score_data.get('participant', '')
+
+                        if participant == 'home':
+                            home_score = goals
+                        elif participant == 'away':
+                            away_score = goals
 
             # Extract statistics
             stats = fixture.get('statistics', [])
@@ -269,46 +304,24 @@ class LiveFeatureCalculator:
 
         return dict(stat_dict)
 
-    def calculate_elo(self, team_id: int, matches: List[Dict]) -> float:
+    def calculate_elo(self, team_id: int, matches: List[Dict] = None) -> float:
         """
-        Calculate current Elo rating for team based on recent matches.
+        Get Elo rating for team from pre-computed ratings.
+
+        Note: We use pre-computed Elo ratings from training data instead of
+        recalculating from recent matches, because:
+        1. Training Elo is based on full historical sequence (not just recent matches)
+        2. Ensures consistency between training and prediction features
 
         Args:
             team_id: Team ID
-            matches: List of team's recent matches (sorted oldest to newest)
+            matches: Unused, kept for API compatibility
 
         Returns:
-            Current Elo rating
+            Elo rating (from training data or default)
         """
-        # Start with default or cached Elo
-        elo = self.elo_ratings.get(team_id, DEFAULT_ELO)
-
-        for match in matches:
-            is_home = match['home_team_id'] == team_id
-            team_score = match['home_score'] if is_home else match['away_score']
-            opp_score = match['away_score'] if is_home else match['home_score']
-            opp_id = match['away_team_id'] if is_home else match['home_team_id']
-
-            # Get opponent Elo
-            opp_elo = self.elo_ratings.get(opp_id, DEFAULT_ELO)
-
-            # Calculate expected score
-            expected = 1 / (1 + 10 ** ((opp_elo - elo) / 400))
-
-            # Actual score (1 = win, 0.5 = draw, 0 = loss)
-            if team_score > opp_score:
-                actual = 1.0
-            elif team_score == opp_score:
-                actual = 0.5
-            else:
-                actual = 0.0
-
-            # Update Elo
-            elo += ELO_K_FACTOR * (actual - expected)
-
-        # Cache the result
-        self.elo_ratings[team_id] = elo
-        return elo
+        # Return pre-loaded Elo rating
+        return self.elo_ratings.get(team_id, DEFAULT_ELO)
 
     def calculate_rolling_stats(self, matches: List[Dict], team_id: int, window: int = 5) -> Dict:
         """
@@ -334,9 +347,22 @@ class LiveFeatureCalculator:
             'shots_total': [],
             'shots_on_target': [],
             'dangerous_attacks': [],
-            'possession_pct': [],  # Changed from 'possession'
-            'successful_passes': [],  # Changed from 'passes_accurate'
-            'passes': [],  # Changed from 'passes_total'
+            'possession_pct': [],
+            'successful_passes': [],
+            'passes': [],
+            'tackles': [],
+            'interceptions': [],
+            'corners': []
+        }
+
+        # Also track what opponents did (for _conceded features)
+        opp_stats = {
+            'shots_total': [],
+            'shots_on_target': [],
+            'dangerous_attacks': [],
+            'possession_pct': [],
+            'successful_passes': [],
+            'passes': [],
             'tackles': [],
             'interceptions': [],
             'corners': []
@@ -368,23 +394,33 @@ class LiveFeatureCalculator:
             side = 'home' if is_home else 'away'
             opp_side = 'away' if is_home else 'home'
 
+            # Team's own stats
             for stat_name in stats.keys():
                 if stat_name not in ['goals', 'goals_conceded']:
                     value = match_stats.get(stat_name, {}).get(side, 0)
                     stats[stat_name].append(value)
 
-        # Calculate averages
+            # Opponent's stats (for _conceded features)
+            for stat_name in opp_stats.keys():
+                opp_value = match_stats.get(stat_name, {}).get(opp_side, 0)
+                opp_stats[stat_name].append(opp_value)
+
+        # Calculate averages for team's own stats
         result = {
             f'{stat}_avg': np.mean(values) if values else 0
             for stat, values in stats.items()
         }
 
-        # Add form
+        # Calculate averages for opponent's stats (_conceded suffix)
+        for stat_name, values in opp_stats.items():
+            result[f'{stat_name}_conceded_avg'] = np.mean(values) if values else 0
+
+        # Add form (total points, not normalized - to match training data)
         total_games = len(recent)
         result['wins'] = wins
         result['draws'] = draws
         result['losses'] = losses
-        result['form'] = (wins * 3 + draws) / (total_games * 3) if total_games > 0 else 0
+        result['form'] = wins * 3 + draws  # Points from wins (3) and draws (1)
 
         # Calculate xG (approximation from shots)
         if result['shots_total_avg'] > 0:
@@ -392,13 +428,27 @@ class LiveFeatureCalculator:
         else:
             result['xg_avg'] = 0
 
-        result['xg_conceded_avg'] = result['xg_avg'] * (result['goals_conceded_avg'] / max(result['goals_avg'], 0.1))
+        # xG conceded (opponent's xG against this team)
+        if result['shots_total_conceded_avg'] > 0:
+            result['xg_conceded_avg'] = result['shots_on_target_conceded_avg'] * 0.3 + result['shots_total_conceded_avg'] * 0.05
+        else:
+            result['xg_conceded_avg'] = 0
 
         # Passing percentage (now using 'passes' and 'successful_passes')
         if result['passes_avg'] > 0:
             result['passes_pct'] = (result['successful_passes_avg'] / result['passes_avg']) * 100
         else:
             result['passes_pct'] = 0
+
+        # Opponent passing percentage
+        if result['passes_conceded_avg'] > 0:
+            result['passes_pct_conceded'] = (result['successful_passes_conceded_avg'] / result['passes_conceded_avg']) * 100
+        else:
+            result['passes_pct_conceded'] = 0
+
+        # Big chances created (approximation from shots on target)
+        result['big_chances_created_avg'] = result['shots_on_target_avg'] * 0.3
+        result['big_chances_created_conceded_avg'] = result['shots_on_target_conceded_avg'] * 0.3
 
         return result
 
@@ -418,7 +468,10 @@ class LiveFeatureCalculator:
         self,
         home_team_id: int,
         away_team_id: int,
-        fixture_date: datetime
+        fixture_date: datetime,
+        home_team_name: str = None,
+        away_team_name: str = None,
+        league_name: str = None
     ) -> Optional[Dict]:
         """
         Build complete feature vector for a match using live API data.
@@ -427,6 +480,9 @@ class LiveFeatureCalculator:
             home_team_id: Home team ID
             away_team_id: Away team ID
             fixture_date: Date of fixture
+            home_team_name: Home team name (for standings lookup)
+            away_team_name: Away team name (for standings lookup)
+            league_name: League name (for standings lookup)
 
         Returns:
             Dictionary of features or None if data unavailable
@@ -471,6 +527,74 @@ class LiveFeatureCalculator:
             'form_diff_3': home_stats_3.get('form', 0) - away_stats_3.get('form', 0),
             'home_wins_3': home_stats_3.get('wins', 0),
             'away_wins_3': away_stats_3.get('wins', 0),
+            'home_draws_3': home_stats_3.get('draws', 0),
+            'away_draws_3': away_stats_3.get('draws', 0),
+            'home_losses_3': home_stats_3.get('losses', 0),
+            'away_losses_3': away_stats_3.get('losses', 0),
+
+            # Rolling stats (3 games)
+            'home_goals_3': home_stats_3.get('goals_avg', 0),
+            'away_goals_3': away_stats_3.get('goals_avg', 0),
+            'home_goals_conceded_3': home_stats_3.get('goals_conceded_avg', 0),
+            'away_goals_conceded_3': away_stats_3.get('goals_conceded_avg', 0),
+            'home_xg_3': home_stats_3.get('xg_avg', 0),
+            'away_xg_3': away_stats_3.get('xg_avg', 0),
+            'home_xg_conceded_3': home_stats_3.get('xg_conceded_avg', 0),
+            'away_xg_conceded_3': away_stats_3.get('xg_conceded_avg', 0),
+            'home_shots_total_3': home_stats_3.get('shots_total_avg', 0),
+            'away_shots_total_3': away_stats_3.get('shots_total_avg', 0),
+            'home_shots_total_conceded_3': home_stats_3.get('shots_total_conceded_avg', 0),
+            'away_shots_total_conceded_3': away_stats_3.get('shots_total_conceded_avg', 0),
+            'home_shots_on_target_3': home_stats_3.get('shots_on_target_avg', 0),
+            'away_shots_on_target_3': away_stats_3.get('shots_on_target_avg', 0),
+            'home_shots_on_target_conceded_3': home_stats_3.get('shots_on_target_conceded_avg', 0),
+            'away_shots_on_target_conceded_3': away_stats_3.get('shots_on_target_conceded_avg', 0),
+            'home_possession_pct_3': home_stats_3.get('possession_pct_avg', 0),
+            'away_possession_pct_3': away_stats_3.get('possession_pct_avg', 0),
+            'home_possession_pct_conceded_3': home_stats_3.get('possession_pct_conceded_avg', 0),
+            'away_possession_pct_conceded_3': away_stats_3.get('possession_pct_conceded_avg', 0),
+            'home_dangerous_attacks_3': home_stats_3.get('dangerous_attacks_avg', 0),
+            'away_dangerous_attacks_3': away_stats_3.get('dangerous_attacks_avg', 0),
+            'home_dangerous_attacks_conceded_3': home_stats_3.get('dangerous_attacks_conceded_avg', 0),
+            'away_dangerous_attacks_conceded_3': away_stats_3.get('dangerous_attacks_conceded_avg', 0),
+            'home_corners_3': home_stats_3.get('corners_avg', 0),
+            'away_corners_3': away_stats_3.get('corners_avg', 0),
+            'home_corners_conceded_3': home_stats_3.get('corners_conceded_avg', 0),
+            'away_corners_conceded_3': away_stats_3.get('corners_conceded_avg', 0),
+            'home_passes_3': home_stats_3.get('passes_avg', 0),
+            'away_passes_3': away_stats_3.get('passes_avg', 0),
+            'home_passes_conceded_3': home_stats_3.get('passes_conceded_avg', 0),
+            'away_passes_conceded_3': away_stats_3.get('passes_conceded_avg', 0),
+            'home_successful_passes_pct_3': home_stats_3.get('passes_pct', 0),
+            'away_successful_passes_pct_3': away_stats_3.get('passes_pct', 0),
+            'home_tackles_3': home_stats_3.get('tackles_avg', 0),
+            'away_tackles_3': away_stats_3.get('tackles_avg', 0),
+            'home_tackles_conceded_3': home_stats_3.get('tackles_conceded_avg', 0),
+            'away_tackles_conceded_3': away_stats_3.get('tackles_conceded_avg', 0),
+            'home_interceptions_3': home_stats_3.get('interceptions_avg', 0),
+            'away_interceptions_3': away_stats_3.get('interceptions_avg', 0),
+            'home_interceptions_conceded_3': home_stats_3.get('interceptions_conceded_avg', 0),
+            'away_interceptions_conceded_3': away_stats_3.get('interceptions_conceded_avg', 0),
+            'home_successful_passes_3': home_stats_3.get('successful_passes_avg', 0),
+            'away_successful_passes_3': away_stats_3.get('successful_passes_avg', 0),
+            'home_successful_passes_conceded_3': home_stats_3.get('successful_passes_conceded_avg', 0),
+            'away_successful_passes_conceded_3': away_stats_3.get('successful_passes_conceded_avg', 0),
+
+            # Player stats (approximations for window 3)
+            'home_successful_passes_pct_conceded_3': home_stats_3.get('passes_pct_conceded', 0),
+            'away_successful_passes_pct_conceded_3': away_stats_3.get('passes_pct_conceded', 0),
+            'home_big_chances_created_3': home_stats_3.get('big_chances_created_avg', 0),
+            'away_big_chances_created_3': away_stats_3.get('big_chances_created_avg', 0),
+            'home_big_chances_created_conceded_3': home_stats_3.get('big_chances_created_conceded_avg', 0),
+            'away_big_chances_created_conceded_3': away_stats_3.get('big_chances_created_conceded_avg', 0),
+            'home_player_clearances_3': home_stats_3.get('interceptions_avg', 0) * 1.5,
+            'away_player_clearances_3': away_stats_3.get('interceptions_avg', 0) * 1.5,
+            'home_player_rating_3': 6.5 + home_stats_3.get('form', 0) * 0.1,
+            'away_player_rating_3': 6.5 + away_stats_3.get('form', 0) * 0.1,
+            'home_player_touches_3': home_stats_3.get('possession_pct_avg', 0) * 6,
+            'away_player_touches_3': away_stats_3.get('possession_pct_avg', 0) * 6,
+            'home_player_duels_won_3': home_stats_3.get('tackles_avg', 0) * 1.2,
+            'away_player_duels_won_3': away_stats_3.get('tackles_avg', 0) * 1.2,
 
             # Form (5 games)
             'home_form_5': home_stats_5.get('form', 0),
@@ -478,6 +602,10 @@ class LiveFeatureCalculator:
             'form_diff_5': home_stats_5.get('form', 0) - away_stats_5.get('form', 0),
             'home_wins_5': home_stats_5.get('wins', 0),
             'away_wins_5': away_stats_5.get('wins', 0),
+            'home_draws_5': home_stats_5.get('draws', 0),
+            'away_draws_5': away_stats_5.get('draws', 0),
+            'home_losses_5': home_stats_5.get('losses', 0),
+            'away_losses_5': away_stats_5.get('losses', 0),
 
             # Rolling stats (5 games)
             'home_goals_5': home_stats_5.get('goals_avg', 0),
@@ -492,54 +620,208 @@ class LiveFeatureCalculator:
             'away_shots_total_5': away_stats_5.get('shots_total_avg', 0),
             'home_shots_on_target_5': home_stats_5.get('shots_on_target_avg', 0),
             'away_shots_on_target_5': away_stats_5.get('shots_on_target_avg', 0),
+            'home_shots_total_conceded_5': home_stats_5.get('shots_total_conceded_avg', 0),
+            'away_shots_total_conceded_5': away_stats_5.get('shots_total_conceded_avg', 0),
+            'home_shots_on_target_conceded_5': home_stats_5.get('shots_on_target_conceded_avg', 0),
+            'away_shots_on_target_conceded_5': away_stats_5.get('shots_on_target_conceded_avg', 0),
             'home_dangerous_attacks_5': home_stats_5.get('dangerous_attacks_avg', 0),
             'away_dangerous_attacks_5': away_stats_5.get('dangerous_attacks_avg', 0),
+            'home_dangerous_attacks_conceded_5': home_stats_5.get('dangerous_attacks_conceded_avg', 0),
+            'away_dangerous_attacks_conceded_5': away_stats_5.get('dangerous_attacks_conceded_avg', 0),
             'home_possession_pct_5': home_stats_5.get('possession_pct_avg', 0),
             'away_possession_pct_5': away_stats_5.get('possession_pct_avg', 0),
+            'home_possession_pct_conceded_5': home_stats_5.get('possession_pct_conceded_avg', 0),
+            'away_possession_pct_conceded_5': away_stats_5.get('possession_pct_conceded_avg', 0),
             'home_successful_passes_pct_5': home_stats_5.get('passes_pct', 0),
             'away_successful_passes_pct_5': away_stats_5.get('passes_pct', 0),
+            'home_passes_5': home_stats_5.get('passes_avg', 0),
+            'away_passes_5': away_stats_5.get('passes_avg', 0),
+            'home_passes_conceded_5': home_stats_5.get('passes_conceded_avg', 0),
+            'away_passes_conceded_5': away_stats_5.get('passes_conceded_avg', 0),
             'home_tackles_5': home_stats_5.get('tackles_avg', 0),
             'away_tackles_5': away_stats_5.get('tackles_avg', 0),
+            'home_tackles_conceded_5': home_stats_5.get('tackles_conceded_avg', 0),
+            'away_tackles_conceded_5': away_stats_5.get('tackles_conceded_avg', 0),
             'home_interceptions_5': home_stats_5.get('interceptions_avg', 0),
             'away_interceptions_5': away_stats_5.get('interceptions_avg', 0),
+            'home_interceptions_conceded_5': home_stats_5.get('interceptions_conceded_avg', 0),
+            'away_interceptions_conceded_5': away_stats_5.get('interceptions_conceded_avg', 0),
+            'home_corners_5': home_stats_5.get('corners_avg', 0),
+            'away_corners_5': away_stats_5.get('corners_avg', 0),
+            'home_corners_conceded_5': home_stats_5.get('corners_conceded_avg', 0),
+            'away_corners_conceded_5': away_stats_5.get('corners_conceded_avg', 0),
 
             # Player stats (approximations)
-            'home_big_chances_created_5': home_stats_5.get('shots_on_target_avg', 0) * 0.3,
-            'away_big_chances_created_5': away_stats_5.get('shots_on_target_avg', 0) * 0.3,
+            'home_successful_passes_pct_conceded_5': home_stats_5.get('passes_pct_conceded', 0),
+            'away_successful_passes_pct_conceded_5': away_stats_5.get('passes_pct_conceded', 0),
+            'home_big_chances_created_5': home_stats_5.get('big_chances_created_avg', 0),
+            'away_big_chances_created_5': away_stats_5.get('big_chances_created_avg', 0),
+            'home_big_chances_created_conceded_5': home_stats_5.get('big_chances_created_conceded_avg', 0),
+            'away_big_chances_created_conceded_5': away_stats_5.get('big_chances_created_conceded_avg', 0),
             'home_player_clearances_5': home_stats_5.get('interceptions_avg', 0) * 1.5,
             'away_player_clearances_5': away_stats_5.get('interceptions_avg', 0) * 1.5,
-            'home_player_rating_5': 6.5 + home_stats_5.get('form', 0) * 1.5,
-            'away_player_rating_5': 6.5 + away_stats_5.get('form', 0) * 1.5,
-            'home_player_touches_5': home_stats_5.get('possession_avg', 0) * 6,
-            'away_player_touches_5': away_stats_5.get('possession_avg', 0) * 6,
+            'home_player_rating_5': 6.5 + home_stats_5.get('form', 0) * 0.1,  # Scale down from form
+            'away_player_rating_5': 6.5 + away_stats_5.get('form', 0) * 0.1,
+            'home_player_touches_5': home_stats_5.get('possession_pct_avg', 0) * 6,  # Fixed: was 'possession_avg'
+            'away_player_touches_5': away_stats_5.get('possession_pct_avg', 0) * 6,
             'home_player_duels_won_5': home_stats_5.get('tackles_avg', 0) * 1.2,
             'away_player_duels_won_5': away_stats_5.get('tackles_avg', 0) * 1.2,
 
             # Rolling stats (10 games)
             'home_goals_10': home_stats_10.get('goals_avg', 0),
             'away_goals_10': away_stats_10.get('goals_avg', 0),
+            'home_goals_conceded_10': home_stats_10.get('goals_conceded_avg', 0),
+            'away_goals_conceded_10': away_stats_10.get('goals_conceded_avg', 0),
             'home_xg_10': home_stats_10.get('xg_avg', 0),
             'away_xg_10': away_stats_10.get('xg_avg', 0),
+            'home_xg_conceded_10': home_stats_10.get('xg_conceded_avg', 0),
+            'away_xg_conceded_10': away_stats_10.get('xg_conceded_avg', 0),
+            'home_shots_total_10': home_stats_10.get('shots_total_avg', 0),
+            'away_shots_total_10': away_stats_10.get('shots_total_avg', 0),
+            'home_shots_total_conceded_10': home_stats_10.get('shots_total_conceded_avg', 0),
+            'away_shots_total_conceded_10': away_stats_10.get('shots_total_conceded_avg', 0),
+            'home_shots_on_target_10': home_stats_10.get('shots_on_target_avg', 0),
+            'away_shots_on_target_10': away_stats_10.get('shots_on_target_avg', 0),
+            'home_shots_on_target_conceded_10': home_stats_10.get('shots_on_target_conceded_avg', 0),
+            'away_shots_on_target_conceded_10': away_stats_10.get('shots_on_target_conceded_avg', 0),
+            'home_possession_pct_10': home_stats_10.get('possession_pct_avg', 0),
+            'away_possession_pct_10': away_stats_10.get('possession_pct_avg', 0),
+            'home_possession_pct_conceded_10': home_stats_10.get('possession_pct_conceded_avg', 0),
+            'away_possession_pct_conceded_10': away_stats_10.get('possession_pct_conceded_avg', 0),
+            'home_successful_passes_pct_10': home_stats_10.get('passes_pct', 0),
+            'away_successful_passes_pct_10': away_stats_10.get('passes_pct', 0),
+            'home_dangerous_attacks_10': home_stats_10.get('dangerous_attacks_avg', 0),
+            'away_dangerous_attacks_10': away_stats_10.get('dangerous_attacks_avg', 0),
+            'home_dangerous_attacks_conceded_10': home_stats_10.get('dangerous_attacks_conceded_avg', 0),
+            'away_dangerous_attacks_conceded_10': away_stats_10.get('dangerous_attacks_conceded_avg', 0),
+            'home_passes_10': home_stats_10.get('passes_avg', 0),
+            'away_passes_10': away_stats_10.get('passes_avg', 0),
+            'home_passes_conceded_10': home_stats_10.get('passes_conceded_avg', 0),
+            'away_passes_conceded_10': away_stats_10.get('passes_conceded_avg', 0),
+            'home_successful_passes_10': home_stats_10.get('successful_passes_avg', 0),
+            'away_successful_passes_10': away_stats_10.get('successful_passes_avg', 0),
+            'home_successful_passes_conceded_10': home_stats_10.get('successful_passes_conceded_avg', 0),
+            'away_successful_passes_conceded_10': away_stats_10.get('successful_passes_conceded_avg', 0),
+            'home_tackles_10': home_stats_10.get('tackles_avg', 0),
+            'away_tackles_10': away_stats_10.get('tackles_avg', 0),
+            'home_tackles_conceded_10': home_stats_10.get('tackles_conceded_avg', 0),
+            'away_tackles_conceded_10': away_stats_10.get('tackles_conceded_avg', 0),
+            'home_interceptions_10': home_stats_10.get('interceptions_avg', 0),
+            'away_interceptions_10': away_stats_10.get('interceptions_avg', 0),
+            'home_interceptions_conceded_10': home_stats_10.get('interceptions_conceded_avg', 0),
+            'away_interceptions_conceded_10': away_stats_10.get('interceptions_conceded_avg', 0),
+            'home_corners_10': home_stats_10.get('corners_avg', 0),
+            'away_corners_10': away_stats_10.get('corners_avg', 0),
+            'home_corners_conceded_10': home_stats_10.get('corners_conceded_avg', 0),
+            'away_corners_conceded_10': away_stats_10.get('corners_conceded_avg', 0),
 
-            # Attack/defense strength
+            # Form tracking (10 games)
+            'home_wins_10': home_stats_10.get('wins', 0),
+            'away_wins_10': away_stats_10.get('wins', 0),
+            'home_draws_10': home_stats_10.get('draws', 0),
+            'away_draws_10': away_stats_10.get('draws', 0),
+            'home_losses_10': home_stats_10.get('losses', 0),
+            'away_losses_10': away_stats_10.get('losses', 0),
+            'home_form_10': home_stats_10.get('form', 0),
+            'away_form_10': away_stats_10.get('form', 0),
+            'form_diff_10': home_stats_10.get('form', 0) - away_stats_10.get('form', 0),
+
+            # Player stats (approximations for window 10)
+            'home_successful_passes_pct_conceded_10': home_stats_10.get('passes_pct_conceded', 0),
+            'away_successful_passes_pct_conceded_10': away_stats_10.get('passes_pct_conceded', 0),
+            'home_big_chances_created_10': home_stats_10.get('big_chances_created_avg', 0),
+            'away_big_chances_created_10': away_stats_10.get('big_chances_created_avg', 0),
+            'home_big_chances_created_conceded_10': home_stats_10.get('big_chances_created_conceded_avg', 0),
+            'away_big_chances_created_conceded_10': away_stats_10.get('big_chances_created_conceded_avg', 0),
+            'home_player_clearances_10': home_stats_10.get('interceptions_avg', 0) * 1.5,
+            'away_player_clearances_10': away_stats_10.get('interceptions_avg', 0) * 1.5,
+            'home_player_rating_10': 6.5 + home_stats_10.get('form', 0) * 0.1,
+            'away_player_rating_10': 6.5 + away_stats_10.get('form', 0) * 0.1,
+            'home_player_touches_10': home_stats_10.get('possession_pct_avg', 0) * 6,
+            'away_player_touches_10': away_stats_10.get('possession_pct_avg', 0) * 6,
+            'home_player_duels_won_10': home_stats_10.get('tackles_avg', 0) * 1.2,
+            'away_player_duels_won_10': away_stats_10.get('tackles_avg', 0) * 1.2,
+
+            # Attack/defense strength (multiple windows)
+            'home_attack_strength_3': home_stats_3.get('goals_avg', 0) / max(home_stats_3.get('xg_avg', 0), 0.1),
+            'away_attack_strength_3': away_stats_3.get('goals_avg', 0) / max(away_stats_3.get('xg_avg', 0), 0.1),
+            'home_defense_strength_3': home_stats_3.get('goals_conceded_avg', 0) / max(home_stats_3.get('xg_conceded_avg', 0), 0.1),
+            'away_defense_strength_3': away_stats_3.get('goals_conceded_avg', 0) / max(away_stats_3.get('xg_conceded_avg', 0), 0.1),
             'home_attack_strength_5': home_stats_5.get('goals_avg', 0) / max(home_stats_5.get('xg_avg', 0), 0.1),
             'away_attack_strength_5': away_stats_5.get('goals_avg', 0) / max(away_stats_5.get('xg_avg', 0), 0.1),
             'home_defense_strength_5': home_stats_5.get('goals_conceded_avg', 0) / max(home_stats_5.get('xg_conceded_avg', 0), 0.1),
             'away_defense_strength_5': away_stats_5.get('goals_conceded_avg', 0) / max(away_stats_5.get('xg_conceded_avg', 0), 0.1),
+            'home_attack_strength_10': home_stats_10.get('goals_avg', 0) / max(home_stats_10.get('xg_avg', 0), 0.1),
+            'away_attack_strength_10': away_stats_10.get('goals_avg', 0) / max(away_stats_10.get('xg_avg', 0), 0.1),
+            'home_defense_strength_10': home_stats_10.get('goals_conceded_avg', 0) / max(home_stats_10.get('xg_conceded_avg', 0), 0.1),
+            'away_defense_strength_10': away_stats_10.get('goals_conceded_avg', 0) / max(away_stats_10.get('xg_conceded_avg', 0), 0.1),
         }
 
         # Add H2H features
         h2h = self.calculate_h2h(home_team_id, away_team_id)
         features.update(h2h)
 
-        # Add contextual features (placeholders - would need standings API)
+        # Add contextual features
+        # Derive season name from date (July-June season)
+        year = fixture_date.year
+        month = fixture_date.month
+        if month >= 7:  # July onwards is new season
+            season_name = f"{year}/{year+1}"
+        else:  # Jan-June is previous season
+            season_name = f"{year-1}/{year}"
+
+        # Try to get REAL position and points from ESPN API
+        home_standings = None
+        away_standings = None
+
+        if home_team_name and league_name:
+            home_standings = get_team_standings(home_team_name, league_name)
+        if away_team_name and league_name:
+            away_standings = get_team_standings(away_team_name, league_name)
+
+        # Use real standings if available, otherwise estimate from Elo + form
+        if home_standings:
+            home_est_position = home_standings['position']
+            home_est_points = home_standings['points']
+            logger.info(f"Using real standings for {home_team_name}: pos={home_est_position}, pts={home_est_points}")
+        else:
+            # Fallback: estimate from Elo and form
+            home_est_position = max(1, min(20, 21 - ((home_elo - 1400) / 20)))
+            home_est_points = home_stats_10.get('form', 15) * 1.9
+            logger.info(f"Using estimated standings for home team (ID {home_team_id})")
+
+        if away_standings:
+            away_est_position = away_standings['position']
+            away_est_points = away_standings['points']
+            logger.info(f"Using real standings for {away_team_name}: pos={away_est_position}, pts={away_est_points}")
+        else:
+            # Fallback: estimate from Elo and form
+            away_est_position = max(1, min(20, 21 - ((away_elo - 1400) / 20)))
+            away_est_points = away_stats_10.get('form', 15) * 1.9
+            logger.info(f"Using estimated standings for away team (ID {away_team_id})")
+
         features.update({
-            'home_position': 10,  # Would fetch from standings
-            'away_position': 10,
-            'position_diff': 0,
-            'home_points': 30,
-            'away_points': 30,
-            'points_diff': 0,
+            'season_name': season_name,
+            'day_of_week': fixture_date.weekday(),  # 0=Monday, 6=Sunday
+
+            # Market features (betting odds - using neutral placeholders)
+            'odds_home': 2.5,  # Neutral odds
+            'odds_draw': 3.3,
+            'odds_away': 2.5,
+            'market_prob_home': 0.33,  # Equal probabilities
+            'market_prob_draw': 0.33,
+            'market_prob_away': 0.33,
+            'market_favorite': 0,  # 0 = no favorite
+            'market_home_away_ratio': 1.0,  # Equal odds ratio
+
+            # Position and points (estimated from Elo and form)
+            'home_position': home_est_position,
+            'away_position': away_est_position,
+            'position_diff': home_est_position - away_est_position,  # Negative = home better
+            'home_points': home_est_points,
+            'away_points': away_est_points,
+            'points_diff': home_est_points - away_est_points,  # Positive = home better
+
             'home_injuries': 0,  # Would fetch from injuries API
             'away_injuries': 0,
             'injury_diff': 0,
@@ -604,13 +886,13 @@ def get_upcoming_fixtures(target_date: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def load_models():
+def load_models(model_name='stacking'):
     """Load trained models."""
     models = {}
 
     # Load XGBoost
     xgb_path = MODELS_DIR / "xgboost_model.joblib"
-    if xgb_path.exists():
+    if xgb_path.exists() and model_name in ['xgboost', 'all']:
         try:
             import importlib
             xgb_module = importlib.import_module('06_model_xgboost')
@@ -622,19 +904,74 @@ def load_models():
         except Exception as e:
             logger.warning(f"Could not load XGBoost: {e}")
 
-    # Load stacking ensemble
+    # Load stacking ensemble (requires base models)
     stacking_path = MODELS_DIR / "stacking_ensemble.joblib"
-    if stacking_path.exists():
+    if stacking_path.exists() and model_name in ['stacking', 'all']:
         try:
             import importlib
+
+            # Load base models first
+            elo_module = importlib.import_module('04_model_baseline_elo')
+            dc_module = importlib.import_module('05_model_dixon_coles')
+            xgb_module = importlib.import_module('06_model_xgboost')
             ensemble_module = importlib.import_module('07_model_ensemble')
+
+            EloProbabilityModel = elo_module.EloProbabilityModel
+            DixonColesModel = dc_module.DixonColesModel
+            CalibratedDixonColes = dc_module.CalibratedDixonColes
+            XGBoostFootballModel = xgb_module.XGBoostFootballModel
             StackingEnsemble = ensemble_module.StackingEnsemble
 
-            # Note: stacking needs base models loaded first
-            # For now, use XGBoost as fallback
-            logger.info("Stacking ensemble available but using XGBoost for simplicity")
+            # Load each base model
+            elo_model = EloProbabilityModel()
+            elo_path = MODELS_DIR / "elo_model.joblib"
+            if elo_path.exists():
+                elo_model.load(elo_path)
+
+            # Load Dixon-Coles (saved as CalibratedDixonColes)
+            dc_path = MODELS_DIR / "dixon_coles_model.joblib"
+            if dc_path.exists():
+                import joblib
+                dc_data = joblib.load(dc_path)
+                # Reconstruct the calibrated model
+                base_dc = DixonColesModel()
+                base_dc.attack = dc_data['base_model_data']['attack']
+                base_dc.defense = dc_data['base_model_data']['defense']
+                base_dc.home_adv = dc_data['base_model_data']['home_adv']
+                base_dc.rho = dc_data['base_model_data']['rho']
+                base_dc.team_to_idx = dc_data['base_model_data']['team_to_idx']
+                base_dc.idx_to_team = dc_data['base_model_data']['idx_to_team']
+                base_dc.time_decay = dc_data['base_model_data']['time_decay']
+                base_dc.max_goals = dc_data['base_model_data']['max_goals']
+                base_dc.is_fitted = dc_data['base_model_data']['is_fitted']
+
+                dc_model = CalibratedDixonColes(base_dc)
+                dc_model.calibrators = dc_data['calibrators']
+                dc_model.is_calibrated = dc_data['is_calibrated']
+            else:
+                # Fallback to uncalibrated
+                dc_model = DixonColesModel()
+
+            xgb_model = XGBoostFootballModel()
+            xgb_path = MODELS_DIR / "xgboost_model.joblib"
+            if xgb_path.exists():
+                xgb_model.load(xgb_path)
+
+            # Create stacking ensemble
+            stacking_model = StackingEnsemble()
+            stacking_model.load(stacking_path)
+
+            # Add base models
+            stacking_model.add_model('elo', elo_model)
+            stacking_model.add_model('dixon_coles', dc_model)
+            stacking_model.add_model('xgboost', xgb_model)
+
+            models['stacking'] = stacking_model
+            logger.info("Loaded Stacking Ensemble model with base models")
         except Exception as e:
-            logger.warning(f"Could not load Stacking: {e}")
+            logger.warning(f"Could not load Stacking Ensemble: {e}")
+            import traceback
+            traceback.print_exc()
 
     return models
 
@@ -649,6 +986,12 @@ def main():
     parser.add_argument(
         "--output",
         help="Output CSV file path (optional)"
+    )
+    parser.add_argument(
+        "--model",
+        default="stacking",
+        choices=["xgboost", "stacking"],
+        help="Model to use for predictions (default: stacking)"
     )
 
     args = parser.parse_args()
@@ -679,13 +1022,13 @@ def main():
 
     # Load models
     print("\nLoading models...")
-    models = load_models()
+    models = load_models(model_name=args.model)
 
     if not models:
         print("ERROR: No models loaded")
         return
 
-    model_name = 'xgboost'
+    model_name = args.model
     model = models.get(model_name)
 
     # Initialize feature calculator
@@ -708,7 +1051,10 @@ def main():
             features = calculator.build_features_for_match(
                 fixture['home_team_id'],
                 fixture['away_team_id'],
-                pd.to_datetime(fixture['date'])
+                pd.to_datetime(fixture['date']),
+                home_team_name=fixture['home_team_name'],
+                away_team_name=fixture['away_team_name'],
+                league_name=fixture['league_name']
             )
 
             if not features:
@@ -725,6 +1071,12 @@ def main():
 
             # Convert to DataFrame
             feature_df = pd.DataFrame([features])
+
+            # Add team info for Dixon-Coles model (needed by stacking ensemble)
+            feature_df['home_team_id'] = fixture['home_team_id']
+            feature_df['away_team_id'] = fixture['away_team_id']
+            feature_df['home_team_name'] = fixture['home_team_name']
+            feature_df['away_team_name'] = fixture['away_team_name']
 
             # Make prediction
             probs = model.predict_proba(feature_df)[0]

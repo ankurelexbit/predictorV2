@@ -1,0 +1,92 @@
+{
+  "summary": {
+    "period": "2026-01-09 to 2026-01-18",
+    "total_opportunities": 147,
+    "best_strategy": "Away Wins Only",
+    "best_pnl": 71.07167968309045,
+    "best_roi": 25.382742743960872,
+    "improvement_vs_baseline": 147.9614029671664
+  },
+  "all_strategies": [
+    {
+      "Strategy": "Away Wins Only",
+      "Bets": 28,
+      "Total Staked": 280.0,
+      "Net P&L": 71.07167968309045,
+      "ROI %": 25.382742743960872,
+      "Win Rate %": 53.57142857142857,
+      "Avg Stake": 10.0,
+      "Winning Bets": 15
+    },
+    {
+      "Strategy": "Very High Confidence (60%+)",
+      "Bets": 20,
+      "Total Staked": 200.0,
+      "Net P&L": 9.398971760356904,
+      "ROI %": 4.699485880178452,
+      "Win Rate %": 70.0,
+      "Avg Stake": 10.0,
+      "Winning Bets": 14
+    },
+    {
+      "Strategy": "Away Wins 53%+ Confidence",
+      "Bets": 2,
+      "Total Staked": 20.0,
+      "Net P&L": -1.2030075187969924,
+      "ROI %": -6.015037593984962,
+      "Win Rate %": 50.0,
+      "Avg Stake": 10.0,
+      "Winning Bets": 1
+    },
+    {
+      "Strategy": "Away Wins 50%+ Confidence",
+      "Bets": 4,
+      "Total Staked": 40.0,
+      "Net P&L": -1.9722382880277625,
+      "ROI %": -4.930595720069406,
+      "Win Rate %": 50.0,
+      "Avg Stake": 10.0,
+      "Winning Bets": 2
+    },
+    {
+      "Strategy": "High Confidence (55%+)",
+      "Bets": 55,
+      "Total Staked": 550.0,
+      "Net P&L": -62.69547412080019,
+      "ROI %": -11.399177112872762,
+      "Win Rate %": 54.54545454545454,
+      "Avg Stake": 10.0,
+      "Winning Bets": 30
+    },
+    {
+      "Strategy": "Home Wins 55%+ Confidence",
+      "Bets": 55,
+      "Total Staked": 550.0,
+      "Net P&L": -62.69547412080019,
+      "ROI %": -11.399177112872762,
+      "Win Rate %": 54.54545454545454,
+      "Avg Stake": 10.0,
+      "Winning Bets": 30
+    },
+    {
+      "Strategy": "Proportional Staking",
+      "Bets": 82,
+      "Total Staked": 954.2999999999997,
+      "Net P&L": -74.3,
+      "ROI %": -7.7858115896468645,
+      "Win Rate %": 53.65853658536586,
+      "Avg Stake": 11.637804878048778,
+      "Winning Bets": 44
+    },
+    {
+      "Strategy": "Flat Stake (Baseline)",
+      "Bets": 147,
+      "Total Staked": 1470.0,
+      "Net P&L": -76.88972328407596,
+      "ROI %": -5.230593420685439,
+      "Win Rate %": 48.29931972789115,
+      "Avg Stake": 10.0,
+      "Winning Bets": 71
+    }
+  ]
+}

@@ -238,9 +238,9 @@ class DixonColesModel:
             verbose: Print progress
         """
         logger.info(f"Fitting Dixon-Coles model on {len(df)} matches")
-        
-        # Build team index
-        teams = set(df['home_team_name'].unique()) | set(df['away_team_name'].unique())
+
+        # Build team index using IDs instead of names
+        teams = set(df['home_team_id'].unique()) | set(df['away_team_id'].unique())
         self.team_to_idx = {team: i for i, team in enumerate(sorted(teams))}
         self.idx_to_team = {i: team for team, i in self.team_to_idx.items()}
         n_teams = len(teams)
@@ -251,8 +251,8 @@ class DixonColesModel:
         df = df.copy()
         df['date'] = pd.to_datetime(df['date'])
 
-        home_idx = df['home_team_name'].map(self.team_to_idx).values
-        away_idx = df['away_team_name'].map(self.team_to_idx).values
+        home_idx = df['home_team_id'].map(self.team_to_idx).values
+        away_idx = df['away_team_id'].map(self.team_to_idx).values
         home_goals = df['home_goals'].values
         away_goals = df['away_goals'].values
         
@@ -260,9 +260,9 @@ class DixonColesModel:
         weights = self._get_time_weights(df['date'], reference_date)
         
         # Initial parameters
-        # attack/defense ~ 0, home_adv ~ 0.25, rho ~ -0.1
+        # attack/defense ~ 0, home_adv ~ 0.15, rho ~ -0.1
         x0 = np.zeros(2 * n_teams + 2)
-        x0[2*n_teams] = 0.25  # home advantage
+        x0[2*n_teams] = 0.15  # home advantage
         x0[2*n_teams + 1] = -0.1  # rho
         
         # Constraints
@@ -273,7 +273,7 @@ class DixonColesModel:
         
         # Bounds for rho: typically between -0.3 and 0
         bounds = [(None, None)] * (2 * n_teams)  # attack/defense unbounded
-        bounds.append((0, 1))  # home_adv positive
+        bounds.append((0.05, 0.20))  # home_adv constrained to reasonable range
         bounds.append((-0.5, 0.5))  # rho bounded
         
         # Optimize using L-BFGS-B (much faster than SLSQP)
@@ -329,23 +329,27 @@ class DixonColesModel:
     
     def predict_score_probs(
         self,
-        home_team: str,
-        away_team: str
+        home_team_id: int,
+        away_team_id: int
     ) -> np.ndarray:
         """
         Predict probability matrix for all scorelines.
-        
+
+        Args:
+            home_team_id: Home team ID
+            away_team_id: Away team ID
+
         Returns:
             Matrix of shape (max_goals+1, max_goals+1) where [i,j] is P(home=i, away=j)
         """
         if not self.is_fitted:
             raise ValueError("Model not fitted")
-        
-        # Handle unseen teams
-        attack_home = self.attack.get(home_team, 0.0)
-        defense_home = self.defense.get(home_team, 0.0)
-        attack_away = self.attack.get(away_team, 0.0)
-        defense_away = self.defense.get(away_team, 0.0)
+
+        # Handle unseen teams (use team ID)
+        attack_home = self.attack.get(home_team_id, 0.0)
+        defense_home = self.defense.get(home_team_id, 0.0)
+        attack_away = self.attack.get(away_team_id, 0.0)
+        defense_away = self.defense.get(away_team_id, 0.0)
         
         # Expected goals
         lambda_home = np.exp(attack_home + defense_away + self.home_adv)
@@ -372,16 +376,20 @@ class DixonColesModel:
     
     def predict_1x2(
         self,
-        home_team: str,
-        away_team: str
+        home_team_id: int,
+        away_team_id: int
     ) -> Tuple[float, float, float]:
         """
         Predict 1X2 probabilities.
-        
+
+        Args:
+            home_team_id: Home team ID
+            away_team_id: Away team ID
+
         Returns:
             (p_home, p_draw, p_away)
         """
-        score_probs = self.predict_score_probs(home_team, away_team)
+        score_probs = self.predict_score_probs(home_team_id, away_team_id)
         
         p_home = 0.0
         p_draw = 0.0
@@ -403,19 +411,19 @@ class DixonColesModel:
     def predict_proba(self, df: pd.DataFrame) -> np.ndarray:
         """
         Predict 1X2 probabilities for all matches in DataFrame.
-        
+
         Args:
-            df: DataFrame with home_team, away_team columns
-        
+            df: DataFrame with home_team_id, away_team_id columns
+
         Returns:
             Array of shape (n_matches, 3)
         """
         probs = []
-        
+
         for _, row in df.iterrows():
-            p_h, p_d, p_a = self.predict_1x2(row['home_team_name'], row['away_team_name'])
+            p_h, p_d, p_a = self.predict_1x2(row['home_team_id'], row['away_team_id'])
             probs.append([p_h, p_d, p_a])
-        
+
         return np.array(probs)
     
     def get_team_strengths(self) -> pd.DataFrame:
