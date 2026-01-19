@@ -1,0 +1,10 @@
+{
+  "current": {
+    "thresholds": {
+      "away_min": 0.35,
+      "draw_threshold": 0.15,
+      "home_min": 0.55
+    },
+    "metrics": {
+      "total_bets": 70,
+      "wins": 
