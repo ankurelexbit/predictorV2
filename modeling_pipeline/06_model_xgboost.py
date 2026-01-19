@@ -26,7 +26,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import RobustScaler
 from sklearn.isotonic import IsotonicRegression
 import xgboost as xgb
 import joblib
@@ -241,7 +241,7 @@ class XGBoostFootballModel:
         
         # Model components
         self.model = None
-        self.scaler = StandardScaler()
+        self.scaler = RobustScaler()  # More robust to outliers than StandardScaler
         self.calibrators = {}
         
         # State
@@ -312,18 +312,46 @@ class XGBoostFootballModel:
         
         # Prepare data
         X_train, features_used = self._prepare_features(train_df, fit_scaler=True)
-        y_train = train_df['result_numeric'].values.astype(int)
-        
+        # Handle both 'result_numeric' and 'target' column names
+        target_col = 'result_numeric' if 'result_numeric' in train_df.columns else 'target'
+        y_train = train_df[target_col].values.astype(int)
+
         self.feature_columns = features_used  # Update to actually used features
-        
-        # Create DMatrix
-        dtrain = xgb.DMatrix(X_train, label=y_train, feature_names=features_used)
+
+        # Compute sample weights to handle class imbalance
+        # Classes: 0=away, 1=draw, 2=home
+        # Historical: 31.6% away, 24.5% draw, 43.9% home
+        # Goal: balance classes by upweighting underrepresented classes
+        from collections import Counter
+        class_counts = Counter(y_train)
+        total_samples = len(y_train)
+
+        # Compute weights: inverse of class frequency
+        class_weights = {
+            cls: total_samples / (len(class_counts) * count)
+            for cls, count in class_counts.items()
+        }
+
+        # Add multiplier for draw class to increase draw predictions
+        DRAW_CLASS_MULTIPLIER = 2.0
+        if 1 in class_weights:  # 1 = draw class
+            class_weights[1] *= DRAW_CLASS_MULTIPLIER
+
+        # Apply weights to samples
+        sample_weights = np.array([class_weights[cls] for cls in y_train])
+
+        logger.info(f"Class distribution: {dict(class_counts)}")
+        logger.info(f"Class weights: {class_weights}")
+
+        # Create DMatrix with sample weights
+        dtrain = xgb.DMatrix(X_train, label=y_train, weight=sample_weights, feature_names=features_used)
         
         # Validation set
         evals = [(dtrain, 'train')]
         if val_df is not None:
             X_val, _ = self._prepare_features(val_df, fit_scaler=False)
-            y_val = val_df['result_numeric'].values.astype(int)
+            target_col_val = 'result_numeric' if 'result_numeric' in val_df.columns else 'target'
+            y_val = val_df[target_col_val].values.astype(int)
             dval = xgb.DMatrix(X_val, label=y_val, feature_names=features_used)
             evals.append((dval, 'val'))
         
@@ -521,8 +549,9 @@ def tune_xgboost(
             'reg_alpha': [0, 0.1, 0.5],
             'reg_lambda': [0.5, 1.0, 2.0],
         }
-    
-    y_val = val_df['result_numeric'].values.astype(int)
+
+    target_col = 'result_numeric' if 'result_numeric' in val_df.columns else 'target'
+    y_val = val_df[target_col].values.astype(int)
     
     best_score = float('inf')
     best_params = None
@@ -757,9 +786,10 @@ def main():
     print(importance_df.head(10).to_string(index=False))
     
     # Get predictions
-    y_train = train_df['result_numeric'].values.astype(int)
-    y_val = val_df['result_numeric'].values.astype(int)
-    y_test = test_df['result_numeric'].values.astype(int)
+    target_col = 'result_numeric' if 'result_numeric' in train_df.columns else 'target'
+    y_train = train_df[target_col].values.astype(int)
+    y_val = val_df[target_col].values.astype(int)
+    y_test = test_df[target_col].values.astype(int)
     
     # Evaluate raw model
     print("\n" + "=" * 60)

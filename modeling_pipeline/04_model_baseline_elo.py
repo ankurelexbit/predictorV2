@@ -66,7 +66,7 @@ class EloProbabilityModel:
     This class provides a sklearn-like interface for consistency.
     """
     
-    def __init__(self, home_advantage=100):
+    def __init__(self, home_advantage=25):
         self.calibrators = {}  # One per class
         self.is_calibrated = False
         self.home_advantage = home_advantage
@@ -97,9 +97,9 @@ class EloProbabilityModel:
 
         # Draw probability estimation
         # Higher when teams are closely matched, lower when big gap
-        base_draw_rate = 0.26
-        elo_draw_factor = 1 - (np.abs(elo_diff) / 800)
-        elo_draw_factor = np.clip(elo_draw_factor, 0.5, 1.2)
+        base_draw_rate = 0.32
+        elo_draw_factor = 1 - (np.abs(elo_diff) / 600)
+        elo_draw_factor = np.clip(elo_draw_factor, 0.5, 1.5)
 
         p_draw = base_draw_rate * elo_draw_factor
 

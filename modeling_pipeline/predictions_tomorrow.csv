@@ -1,5 +1,0 @@
-date,league,home_team,away_team,venue,model_used,home_win_prob,draw_prob,away_win_prob,predicted_outcome
-2026-01-19 17:30:00,Serie A,Cremonese,Hellas Verona,Stadio Giovanni Zini,xgboost,0.5854343175888062,0.2608465254306793,0.15371918678283691,Home Win
-2026-01-19 19:45:00,Serie A,Lazio,Como,Stadio Olimpico,xgboost,0.3311525583267212,0.34061405062675476,0.3282333314418793,Draw
-2026-01-19 20:00:00,Premier League,Brighton & Hove Albion,AFC Bournemouth,The American Express Community Stadium,xgboost,0.5242476463317871,0.32944199442863464,0.14631029963493347,Home Win
-2026-01-19 20:00:00,La Liga,Elche,Sevilla,Estadio Manuel Martínez Valero,xgboost,0.5916346907615662,0.2273186445236206,0.18104667961597443,Home Win
