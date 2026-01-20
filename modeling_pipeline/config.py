@@ -150,15 +150,15 @@ TEST_SEASONS = ["2023/2024"]
 XGBOOST_PARAMS = {
     "objective": "multi:softprob",
     "num_class": 3,
-    "n_estimators": 267,
-    "max_depth": 4,
-    "learning_rate": 0.011924478371113417,
-    "subsample": 0.8389413825998825,
-    "colsample_bytree": 0.9332711615777675,
-    "min_child_weight": 3,
-    "gamma": 0.3247907152342274,
-    "reg_alpha": 0.018307953404260027,
-    "reg_lambda": 0.2143277525521473,
+    "n_estimators": 500,
+    "max_depth": 3,                    # Shallow trees for conservative predictions
+    "learning_rate": 0.03,             # Moderate learning rate
+    "subsample": 0.6,                  # Strong regularization
+    "colsample_bytree": 0.7,           # Feature sampling
+    "min_child_weight": 20,            # VERY conservative (key for draw predictions)
+    "gamma": 5.0,                      # Strong regularization (key for draw predictions)
+    "reg_alpha": 2.0,                  # L1 regularization
+    "reg_lambda": 5.0,                 # L2 regularization
     "random_state": 42,
     "n_jobs": -1,
 }

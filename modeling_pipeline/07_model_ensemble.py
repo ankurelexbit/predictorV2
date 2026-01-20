@@ -531,7 +531,13 @@ def main():
     parser.add_argument(
         "--optimize-weights",
         action="store_true",
-        help="Optimize ensemble weights on validation set"
+        default=True,
+        help="Optimize ensemble weights on validation set (default: True)"
+    )
+    parser.add_argument(
+        "--skip-optimization",
+        action="store_true",
+        help="Skip weight optimization (use fixed weights from config)"
     )
     parser.add_argument(
         "--save-plots",
@@ -552,16 +558,21 @@ def main():
     mask = features_df['target'].notna()
     df = features_df[mask].copy()
 
-    # Split by season
-    train_df, val_df, test_df = season_based_split(
-        df, 'season_name',
-        TRAIN_SEASONS, VALIDATION_SEASONS, TEST_SEASONS
-    )
+    # Split by time (matching XGBoost approach)
+    # Sort by date and use 70/15/15 split
+    df = df.sort_values('date').reset_index(drop=True)
+    n = len(df)
+    train_end = int(n * 0.70)
+    val_end = int(n * 0.85)
 
-    print(f"\nData split:")
-    print(f"  Train: {len(train_df)}")
-    print(f"  Validation: {len(val_df)}")
-    print(f"  Test: {len(test_df)}")
+    train_df = df.iloc[:train_end].copy()
+    val_df = df.iloc[train_end:val_end].copy()
+    test_df = df.iloc[val_end:].copy()
+
+    print(f"\nData split (time-based):")
+    print(f"  Train: {len(train_df)} ({train_df['date'].min().date()} to {train_df['date'].max().date()})")
+    print(f"  Validation: {len(val_df)} ({val_df['date'].min().date()} to {val_df['date'].max().date()})")
+    print(f"  Test: {len(test_df)} ({test_df['date'].min().date()} to {test_df['date'].max().date()})")
 
     y_val = val_df['target'].values.astype(int)
     y_test = test_df['target'].values.astype(int)
@@ -692,8 +703,10 @@ def main():
     for name, weight in ensemble.weights.items():
         print(f"  {name}: {weight:.3f}")
     
-    # Optimize weights
-    if args.optimize_weights:
+    # Optimize weights (enabled by default for better performance)
+    if args.skip_optimization:
+        print("\nSkipping weight optimization (--skip-optimization flag set)")
+    else:
         print("\n" + "=" * 60)
         print("OPTIMIZING WEIGHTS")
         print("=" * 60)

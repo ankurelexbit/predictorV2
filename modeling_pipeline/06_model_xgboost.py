@@ -539,15 +539,18 @@ def tune_xgboost(
         Best parameters and results
     """
     if param_grid is None:
+        # Expanded grid focusing on conservative parameters to predict more draws
+        # Higher min_child_weight = more conservative = more draw predictions
+        # Higher gamma = more regularization = less overfitting on home/away bias
         param_grid = {
-            'max_depth': [4, 5, 6, 7, 8],
-            'learning_rate': [0.01, 0.03, 0.05, 0.1],
-            'subsample': [0.7, 0.8, 0.9, 1.0],
-            'colsample_bytree': [0.7, 0.8, 0.9, 1.0],
-            'min_child_weight': [1, 3, 5, 7],
-            'gamma': [0, 0.1, 0.2],
-            'reg_alpha': [0, 0.1, 0.5],
-            'reg_lambda': [0.5, 1.0, 2.0],
+            'max_depth': [3, 4, 5, 6, 7, 8],
+            'learning_rate': [0.005, 0.01, 0.03, 0.05, 0.1],
+            'subsample': [0.6, 0.7, 0.8, 0.9, 1.0],
+            'colsample_bytree': [0.6, 0.7, 0.8, 0.9, 1.0],
+            'min_child_weight': [1, 3, 5, 7, 10],  # Expanded: higher values for more draws
+            'gamma': [0, 0.1, 0.5, 1.0],  # Expanded: more regularization options
+            'reg_alpha': [0, 0.1, 0.5, 1.0],
+            'reg_lambda': [0.5, 1.0, 2.0, 5.0],
         }
 
     target_col = 'result_numeric' if 'result_numeric' in val_df.columns else 'target'

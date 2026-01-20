@@ -1,9 +1,0 @@
-date,league,home_team,away_team,venue,model_used,home_win_prob,draw_prob,away_win_prob,predicted_outcome,data_source
-2026-01-13 17:30:00,Bundesliga,VfB Stuttgart,Eintracht Frankfurt,MHPArena,stacking,0.5029610198562727,0.27040491371822867,0.22663406642549863,Home Win,live_api
-2026-01-13 19:30:00,Bundesliga,FSV Mainz 05,Heidenheim,Mewa Arena,stacking,0.5513056524506665,0.2505815366742212,0.19811281087511223,Home Win,live_api
-2026-01-13 19:30:00,Bundesliga,Borussia Dortmund,Werder Bremen,Signal Iduna Park,stacking,0.6180403581155702,0.18382597905604336,0.19813366282838632,Home Win,live_api
-2026-01-13 20:00:00,Coppa Italia,Roma,Torino,Stadio Olimpico,stacking,0.5018629101212192,0.27361375034762003,0.22452333953116083,Home Win,live_api
-2026-01-13 20:00:00,Carabao Cup,Newcastle United,Manchester City,St. James' Park,stacking,0.4018204601712795,0.25544750959950707,0.34273203022921345,Home Win,live_api
-2026-01-13 20:00:00,Copa Del Rey,Deportivo La Coruña,Atlético Madrid,Estadio Abanca-Riazor,stacking,0.4970113940527309,0.23046260059569845,0.2725260053515706,Home Win,live_api
-2026-01-13 20:00:00,Copa Del Rey,Real Sociedad,Osasuna,Anoeta Stadium,stacking,0.47520665736528167,0.28102696038100355,0.24376638225371478,Home Win,live_api
-2026-01-13 20:00:00,Copa Del Rey,Cultural Leonesa,Athletic Club,Estadio Municipal Reino de León,stacking,0.5525019895088535,0.2557112931169393,0.19178671737420705,Home Win,live_api
