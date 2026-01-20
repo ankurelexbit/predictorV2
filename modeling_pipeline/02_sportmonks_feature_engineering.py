@@ -790,6 +790,133 @@ def create_target_variable(df):
     return df
 
 
+def calculate_ema_features(df, alpha=0.1):
+    """Calculate Exponential Moving Averages for key stats.
+    
+    EMA gives more weight to recent matches vs hard cutoffs.
+    
+    Args:
+        df: DataFrame with match data
+        alpha: Decay factor (0.1 = 10% weight to new value)
+    
+    Returns:
+        DataFrame with EMA features added
+    """
+    logger.info("Calculating EMA features...")
+    
+    # Sort by date
+    df = df.sort_values('date').reset_index(drop=True)
+    
+    # Stats to calculate EMA for
+    stats = ['goals', 'xg', 'shots_total', 'shots_on_target', 'possession_pct']
+    
+    # Initialize EMA columns
+    for stat in stats:
+        df[f'home_{stat}_ema'] = np.nan
+        df[f'away_{stat}_ema'] = np.nan
+        df[f'home_{stat}_conceded_ema'] = np.nan
+        df[f'away_{stat}_conceded_ema'] = np.nan
+    
+    # Track EMA by team
+    team_ema = {}  # team_id -> {stat: ema_value}
+    
+    for idx, row in df.iterrows():
+        home_team = row['home_team_id']
+        away_team = row['away_team_id']
+        
+        # Initialize if first match
+        if home_team not in team_ema:
+            team_ema[home_team] = {f'{s}': 0 for s in stats}
+            team_ema[home_team].update({f'{s}_conceded': 0 for s in stats})
+        if away_team not in team_ema:
+            team_ema[away_team] = {f'{s}': 0 for s in stats}
+            team_ema[away_team].update({f'{s}_conceded': 0 for s in stats})
+        
+        # Store current EMA (before updating)
+        for stat in stats:
+            df.at[idx, f'home_{stat}_ema'] = team_ema[home_team][stat]
+            df.at[idx, f'away_{stat}_ema'] = team_ema[away_team][stat]
+            df.at[idx, f'home_{stat}_conceded_ema'] = team_ema[home_team][f'{stat}_conceded']
+            df.at[idx, f'away_{stat}_conceded_ema'] = team_ema[away_team][f'{stat}_conceded']
+        
+        # Skip if match incomplete
+        if pd.isna(row.get('home_goals')) or pd.isna(row.get('away_goals')):
+            continue
+        
+        # Update EMA with current match
+        for stat in stats:
+            home_col = f'home_{stat}'
+            away_col = f'away_{stat}'
+            
+            if home_col in row and not pd.isna(row[home_col]):
+                # Home team's own stat
+                team_ema[home_team][stat] = (alpha * row[home_col] + 
+                                             (1 - alpha) * team_ema[home_team][stat])
+                # Away team conceded this stat
+                team_ema[away_team][f'{stat}_conceded'] = (alpha * row[home_col] + 
+                                                           (1 - alpha) * team_ema[away_team][f'{stat}_conceded'])
+            
+            if away_col in row and not pd.isna(row[away_col]):
+                # Away team's own stat
+                team_ema[away_team][stat] = (alpha * row[away_col] + 
+                                             (1 - alpha) * team_ema[away_team][stat])
+                # Home team conceded this stat
+                team_ema[home_team][f'{stat}_conceded'] = (alpha * row[away_col] + 
+                                                           (1 - alpha) * team_ema[home_team][f'{stat}_conceded'])
+    
+    logger.info(f"  Added {len(stats) * 4} EMA features")
+    return df
+
+
+def calculate_rest_days(df):
+    """Calculate days since last match for each team.
+    
+    Captures fatigue effects (e.g., Champions League midweek games).
+    
+    Returns:
+        DataFrame with rest days features added
+    """
+    logger.info("Calculating rest days...")
+    
+    # Sort by date
+    df = df.sort_values('date').reset_index(drop=True)
+    
+    # Initialize columns
+    df['days_rest_home'] = np.nan
+    df['days_rest_away'] = np.nan
+    df['home_short_rest'] = 0
+    df['away_short_rest'] = 0
+    
+    # Track last match date by team
+    team_last_match = {}  # team_id -> last_match_date
+    
+    for idx, row in df.iterrows():
+        home_team = row['home_team_id']
+        away_team = row['away_team_id']
+        match_date = row['date']
+        
+        # Calculate rest days
+        if home_team in team_last_match:
+            days_rest = (match_date - team_last_match[home_team]).days
+            df.at[idx, 'days_rest_home'] = days_rest
+            df.at[idx, 'home_short_rest'] = 1 if days_rest < 4 else 0
+        
+        if away_team in team_last_match:
+            days_rest = (match_date - team_last_match[away_team]).days
+            df.at[idx, 'days_rest_away'] = days_rest
+            df.at[idx, 'away_short_rest'] = 1 if days_rest < 4 else 0
+        
+        # Update last match date
+        team_last_match[home_team] = match_date
+        team_last_match[away_team] = match_date
+    
+    # Add rest difference feature
+    df['rest_diff'] = df['days_rest_home'] - df['days_rest_away']
+    
+    logger.info("  Added 7 rest days features")
+    return df
+
+
 def select_features(df):
     """Select final feature columns for modeling."""
 
@@ -865,11 +992,22 @@ def select_features(df):
     # Contextual
     context_cols = ['round_num', 'season_progress', 'is_early_season',
                     'day_of_week', 'is_weekend']
+    
+    # EMA features
+    ema_stats = ['goals', 'xg', 'shots_total', 'shots_on_target', 'possession_pct']
+    ema_cols = []
+    for stat in ema_stats:
+        ema_cols.extend([f'home_{stat}_ema', f'away_{stat}_ema',
+                        f'home_{stat}_conceded_ema', f'away_{stat}_conceded_ema'])
+    
+    # Rest days features
+    rest_cols = ['days_rest_home', 'days_rest_away', 'home_short_rest',
+                 'away_short_rest', 'rest_diff']
 
     # Combine all
     all_cols = (id_cols + target_cols + elo_cols + form_cols + rolling_cols +
                 strength_cols + standings_cols + h2h_cols + injury_cols +
-                market_cols + context_cols)
+                market_cols + context_cols + ema_cols + rest_cols)
 
     # Select only columns that exist
     available_cols = [c for c in all_cols if c in df.columns]
@@ -922,6 +1060,12 @@ def main():
 
     # Calculate attack/defense strength
     df = calculate_attack_defense_strength(df)
+    
+    # Add EMA features
+    df = calculate_ema_features(df, alpha=0.1)
+    
+    # Add rest days features
+    df = calculate_rest_days(df)
 
     # Create target variable
     df = create_target_variable(df)

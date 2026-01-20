@@ -40,6 +40,7 @@ from config import MODELS_DIR
 from fetch_standings import get_team_standings
 from utils import setup_logger
 from player_stats_manager import PlayerStatsManager
+from odds_fetcher import OddsFetcher
 
 # Import betting strategy (dynamic import to handle numeric prefix in filename)
 spec = importlib.util.spec_from_file_location(
@@ -95,6 +96,10 @@ class LiveFeatureCalculator:
             logger.info("✅ Player database loaded - will use real lineup data when available")
         else:
             logger.warning("⚠️ Player database not loaded - will use approximations for player stats")
+        
+        # Initialize odds fetcher
+        self.odds_fetcher = OddsFetcher()
+        logger.info("✅ Odds fetcher initialized")
 
     def _api_call(self, endpoint: str, params: Dict = None) -> Optional[Dict]:
         """Make API call with error handling."""
@@ -647,6 +652,108 @@ class LiveFeatureCalculator:
             'h2h_away_goals_avg': 0
         }
 
+    def calculate_ema(self, values: List[float], alpha: float = 0.3) -> float:
+        """
+        Calculate Exponential Moving Average.
+        
+        Args:
+            values: List of values (oldest first)
+            alpha: Smoothing factor (0-1), higher = more weight on recent
+        
+        Returns:
+            EMA value
+        """
+        if not values:
+            return 0.0
+        
+        ema = values[0]
+        for value in values[1:]:
+            ema = alpha * value + (1 - alpha) * ema
+        
+        return ema
+
+    def calculate_ema_features(self, matches: List[Dict], alpha: float = 0.3) -> Dict[str, float]:
+        """
+        Calculate EMA features for key statistics.
+        
+        Args:
+            matches: List of recent matches (oldest first)
+            alpha: Smoothing factor
+        
+        Returns:
+            Dictionary of EMA features
+        """
+        ema_features = {}
+        
+        # Stats to calculate EMA for
+        stats_to_ema = {
+            'goals': 'goals_ema',
+            'goals_conceded': 'goals_conceded_ema',
+            'xg': 'xg_ema',
+            'xg_conceded': 'xg_conceded_ema',
+            'shots_total': 'shots_total_ema',
+            'shots_total_conceded': 'shots_total_conceded_ema',
+            'shots_on_target': 'shots_on_target_ema',
+            'shots_on_target_conceded': 'shots_on_target_conceded_ema',
+            'possession_pct': 'possession_pct_ema',
+            'possession_pct_conceded': 'possession_pct_conceded_ema',
+        }
+        
+        for stat_key, ema_key in stats_to_ema.items():
+            values = []
+            for match in matches:
+                if stat_key in match:
+                    values.append(match[stat_key])
+                elif stat_key == 'xg' and 'shots_on_target' in match:
+                    # Approximate xG from shots
+                    values.append(match['shots_on_target'] * 0.3 + match.get('shots_total', 0) * 0.05)
+                elif stat_key == 'xg_conceded' and 'shots_on_target_conceded' in match:
+                    values.append(match['shots_on_target_conceded'] * 0.3 + match.get('shots_total_conceded', 0) * 0.05)
+                elif stat_key == 'possession_pct_conceded':
+                    # Opponent's possession
+                    values.append(100 - match.get('possession_pct', 50))
+                else:
+                    values.append(0)
+            
+            ema_features[ema_key] = self.calculate_ema(values, alpha) if values else 0.0
+        
+        return ema_features
+
+    def calculate_rest_days(self, matches: List[Dict], fixture_date: datetime) -> Dict[str, float]:
+        """
+        Calculate rest days features.
+        
+        Args:
+            matches: List of recent matches (oldest first)
+            fixture_date: Date of upcoming fixture
+        
+        Returns:
+            Dictionary of rest days features
+        """
+        if not matches:
+            return {
+                'days_rest': 7,
+                'short_rest': 0,
+            }
+        
+        # Get last match date
+        last_match = matches[-1]
+        last_match_date = last_match['date']
+        
+        # Calculate days since last match
+        if isinstance(last_match_date, str):
+            last_match_date = datetime.fromisoformat(last_match_date.replace('Z', '+00:00'))
+        
+        days_rest = (fixture_date - last_match_date).days
+        
+        # Short rest indicator (less than 4 days)
+        short_rest = 1 if days_rest < 4 else 0
+        
+        return {
+            'days_rest': days_rest,
+            'short_rest': short_rest,
+        }
+
     def build_features_for_match(
         self,
         home_team_id: int,
@@ -1036,15 +1143,21 @@ class LiveFeatureCalculator:
             'season_name': season_name,
             'day_of_week': fixture_date.weekday(),  # 0=Monday, 6=Sunday
 
-            # Market features (betting odds - using neutral placeholders)
-            'odds_home': 2.5,  # Neutral odds
-            'odds_draw': 3.3,
-            'odds_away': 2.5,
-            'market_prob_home': 0.33,  # Equal probabilities
-            'market_prob_draw': 0.33,
-            'market_prob_away': 0.33,
-            'market_favorite': 0,  # 0 = no favorite
-            'market_home_away_ratio': 1.0,  # Equal odds ratio
+            # Fetch real-time betting odds
+        })
+        
+        logger.info("Fetching real-time betting odds...")
+        odds_data = self.odds_fetcher.get_odds(fixture_id) if fixture_id else self.odds_fetcher._get_neutral_odds()
+        
+        features.update({
+            # Market features (real-time betting odds)
+            'odds_home': odds_data['odds_home'],
+            'odds_draw': odds_data['odds_draw'],
+            'odds_away': odds_data['odds_away'],
+            'odds_total': odds_data['odds_total'],
+            'odds_home_draw_ratio': odds_data['odds_home_draw_ratio'],
+            'odds_home_away_ratio': odds_data['odds_home_away_ratio'],
+            'market_home_away_ratio': odds_data['market_home_away_ratio'],
 
             # Position and points (estimated from Elo and form)
             'home_position': home_est_position,
@@ -1061,6 +1174,50 @@ class LiveFeatureCalculator:
             'season_progress': 0.5,
             'is_early_season': 0,
             'is_weekend': 1 if fixture_date.weekday() >= 5 else 0
+        })
+
+
+        # Calculate EMA features
+        logger.info("Calculating EMA features...")
+        home_ema = self.calculate_ema_features(home_matches)
+        away_ema = self.calculate_ema_features(away_matches)
+        
+        # Add EMA features to features dict
+        features.update({
+            'home_goals_ema': home_ema['goals_ema'],
+            'away_goals_ema': away_ema['goals_ema'],
+            'home_goals_conceded_ema': home_ema['goals_conceded_ema'],
+            'away_goals_conceded_ema': away_ema['goals_conceded_ema'],
+            'home_xg_ema': home_ema['xg_ema'],
+            'away_xg_ema': away_ema['xg_ema'],
+            'home_xg_conceded_ema': home_ema['xg_conceded_ema'],
+            'away_xg_conceded_ema': away_ema['xg_conceded_ema'],
+            'home_shots_total_ema': home_ema['shots_total_ema'],
+            'away_shots_total_ema': away_ema['shots_total_ema'],
+            'home_shots_total_conceded_ema': home_ema['shots_total_conceded_ema'],
+            'away_shots_total_conceded_ema': away_ema['shots_total_conceded_ema'],
+            'home_shots_on_target_ema': home_ema['shots_on_target_ema'],
+            'away_shots_on_target_ema': away_ema['shots_on_target_ema'],
+            'home_shots_on_target_conceded_ema': home_ema['shots_on_target_conceded_ema'],
+            'away_shots_on_target_conceded_ema': away_ema['shots_on_target_conceded_ema'],
+            'home_possession_pct_ema': home_ema['possession_pct_ema'],
+            'away_possession_pct_ema': away_ema['possession_pct_ema'],
+            'home_possession_pct_conceded_ema': home_ema['possession_pct_conceded_ema'],
+            'away_possession_pct_conceded_ema': away_ema['possession_pct_conceded_ema'],
+        })
+
+        # Calculate rest days features
+        logger.info("Calculating rest days features...")
+        home_rest = self.calculate_rest_days(home_matches, fixture_date)
+        away_rest = self.calculate_rest_days(away_matches, fixture_date)
+        
+        # Add rest days features
+        features.update({
+            'days_rest_home': home_rest['days_rest'],
+            'days_rest_away': away_rest['days_rest'],
+            'home_short_rest': home_rest['short_rest'],
+            'away_short_rest': away_rest['short_rest'],
+            'rest_diff': home_rest['days_rest'] - away_rest['days_rest'],
         })
 
         logger.info(f"Built {len(features)} features")
@@ -1122,8 +1279,8 @@ def load_models(model_name='stacking'):
     """Load trained models."""
     models = {}
 
-    # Load XGBoost
-    xgb_path = MODELS_DIR / "xgboost_model.joblib"
+    # Load XGBoost (draw-tuned model for better predictions)
+    xgb_path = MODELS_DIR / "xgboost_model_draw_tuned.joblib"
     if xgb_path.exists() and model_name in ['xgboost', 'all']:
         try:
             import importlib
@@ -1185,7 +1342,7 @@ def load_models(model_name='stacking'):
                 dc_model = DixonColesModel()
 
             xgb_model = XGBoostFootballModel()
-            xgb_path = MODELS_DIR / "xgboost_model.joblib"
+            xgb_path = MODELS_DIR / "xgboost_model_draw_tuned.joblib"
             if xgb_path.exists():
                 xgb_model.load(xgb_path)
 
