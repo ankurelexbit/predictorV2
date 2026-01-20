@@ -332,10 +332,16 @@ class XGBoostFootballModel:
             for cls, count in class_counts.items()
         }
 
-        # Add multiplier for draw class to increase draw predictions
-        DRAW_CLASS_MULTIPLIER = 2.0
+        # Add multipliers to balance predictions
+        # Reduced from 2.0 to 1.5 to reduce Home bias
+        DRAW_CLASS_MULTIPLIER = 1.5
+        # New: boost Away predictions to fix underestimation
+        AWAY_CLASS_MULTIPLIER = 1.3
+        
         if 1 in class_weights:  # 1 = draw class
             class_weights[1] *= DRAW_CLASS_MULTIPLIER
+        if 0 in class_weights:  # 0 = away class
+            class_weights[0] *= AWAY_CLASS_MULTIPLIER
 
         # Apply weights to samples
         sample_weights = np.array([class_weights[cls] for cls in y_train])

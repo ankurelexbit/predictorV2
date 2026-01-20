@@ -2,36 +2,36 @@
 Production Thresholds Configuration
 
 This file contains the optimal betting thresholds for the live prediction pipeline.
-These thresholds are calibrated for the 271-feature live pipeline (with EMA and rest days).
+These thresholds are calibrated for the retrained balanced model (Draw 1.5x, Away 1.3x weights).
 
-Last Updated: 2026-01-20
-Calibration Method: Threshold sensitivity analysis on 200 real API predictions
-Expected Performance: 23.7% ROI, 3.3 bets/day, 68.2% win rate
+Last Updated: 2026-01-21
+Calibration Method: Q4 2025 backtest (889 matches) with balanced class weights
+Expected Performance: 25.0% ROI, 7.7 bets/day, 63.6% win rate
 """
 
-# Optimal thresholds for live pipeline
+# Optimal thresholds for retrained balanced model
 OPTIMAL_THRESHOLDS = {
-    'home': 0.50,  # Home win probability threshold
-    'draw': 0.40,  # Draw probability threshold  
-    'away': 0.60,  # Away win probability threshold
+    'home': 0.48,  # Home win probability threshold (lowered from 0.50)
+    'draw': 0.35,  # Draw probability threshold (lowered from 0.40)
+    'away': 0.45,  # Away win probability threshold (lowered from 0.60)
 }
 
 # Expected performance metrics
 EXPECTED_PERFORMANCE = {
-    'roi': 23.7,
-    'win_rate': 68.2,
-    'bets_per_day': 3.3,
-    'bet_frequency_pct': 33.0
+    'roi': 25.0,
+    'win_rate': 63.6,
+    'bets_per_day': 7.7,
+    'bet_frequency_pct': 77.6
 }
 
 # Calibration details
 CALIBRATION_INFO = {
-    'date': '2026-01-20',
-    'method': 'threshold_sensitivity_analysis',
-    'matches_tested': 200,
-    'combinations_tested': 77,
-    'pipeline': 'live_271_features',
-    'features': 'EMA + rest_days + core_features'
+    'date': '2026-01-21',
+    'method': 'q4_2025_backtest_balanced_model',
+    'matches_tested': 889,
+    'model_version': 'retrained_balanced_weights',
+    'class_weights': 'Draw 1.5x, Away 1.3x',
+    'features': '71 core features (no player stats)'
 }
 
 def get_production_thresholds():
