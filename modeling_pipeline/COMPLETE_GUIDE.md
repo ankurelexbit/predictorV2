@@ -13,7 +13,7 @@
 ## 🎯 System Overview
 
 **Current Model**:
-- **Features**: 72 (includes league_id for league-specific patterns)
+- **Features**: 477 (includes league_id for league-specific patterns)
 - **Training**: XGBoost with balanced class weights (Draw 1.5x, Away 1.3x)
 - **Optimization**: 30 trials of hyperparameter tuning
 - **Calibration**: Isotonic Regression for probability calibration
@@ -44,7 +44,7 @@ venv/bin/python run_live_predictions.py
 1. Fetches upcoming fixtures (next 24 hours) from SportMonks API
 2. For each match:
    - Fetches real-time odds from 19 bookmakers
-   - Generates 72 features (including league_id)
+   - Generates 477 features (including league_id)
    - Makes prediction with calibrated probabilities
    - Applies optimal thresholds
    - Uses best available odds for PnL calculation
@@ -63,14 +63,14 @@ Found 31 upcoming fixtures
 
 [1/31] AZ vs Excelsior
   League: Eredivisie
-  ✅ Generated 72 features (includes league_id=564)
+  ✅ Generated 477 features (includes league_id=564)
   🎯 Predictions: H=51.7% D=27.0% A=21.2%
   💰 RECOMMENDATION: Bet HOME @ 51.7% confidence
   Best Odds: 1.95 (potential profit: $95)
 
 [2/31] Galatasaray vs Atlético Madrid
   League: Champions League
-  ✅ Generated 72 features (includes league_id=8)
+  ✅ Generated 477 features (includes league_id=8)
   🎯 Predictions: H=47.9% D=30.0% A=22.1%
   ⏭️  No bet (no threshold exceeded)
 
@@ -115,7 +115,7 @@ scripts/weekly_model_retraining.sh
 2. **Update Features**
    - Runs `02_sportmonks_feature_engineering.py`
    - Preserves league_id ✅
-   - Generates 72 features per match
+   - Generates 477 features per match
    - Updates `data/processed/sportmonks_features.csv`
 
 3. **Retrain Model**
@@ -369,7 +369,7 @@ venv/bin/python scripts/recalibrate_thresholds_weekly.py
 **Model Files**:
 - `06_model_xgboost.py` - XGBoost model class (balanced weights)
 - `tune_for_draws.py` - Training script (hyperparameter tuning + calibration)
-- `models/xgboost_model_draw_tuned.joblib` - Trained model (72 features)
+- `models/xgboost_model_draw_tuned.joblib` - Trained model (477 features)
 
 **Data Files**:
 - `data/processed/sportmonks_features.csv` - Training data (with league_id)
@@ -448,7 +448,7 @@ venv/bin/python run_live_predictions.py
 
 After setup or weekly update, verify:
 
-- [ ] Model has 72 features (includes league_id)
+- [ ] Model has 477 features (includes league_id)
 - [ ] Thresholds are set (H=0.48, D=0.35, A=0.45)
 - [ ] Data files exist (features, elo, standings, players)
 - [ ] Live predictions generate recommendations
