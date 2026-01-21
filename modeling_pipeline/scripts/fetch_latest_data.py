@@ -43,7 +43,7 @@ def fetch_matches_by_date_range(start_date: str, end_date: str):
     url = f"{BASE_URL}/fixtures/between/{start_date}/{end_date}"
     params = {
         'api_token': API_KEY,
-        'include': 'participants;scores;league;odds;statistics.details',
+        'include': 'participants;scores;league;odds;statistics.details;lineups;events;sidelined',
         'filters': 'fixtureLeagues:8,384,564,462,301'  # Top 5 leagues
     }
     
@@ -190,43 +190,195 @@ def update_dataset(new_data_df):
     
     return True
 
+def extract_lineups(matches):
+    """Extract lineup data from matches."""
+    lineups = []
+    for match in matches:
+        fixture_id = match['id']
+        lineup_data = match.get('lineups', [])
+        
+        for lineup in lineup_data:
+            lineups.append({
+                'fixture_id': fixture_id,
+                'player_id': lineup.get('player_id'),
+                'team_id': lineup.get('participant_id'),
+                'position_id': lineup.get('position_id'),
+                'formation_position': lineup.get('formation_position'),
+                'jersey_number': lineup.get('jersey_number')
+            })
+    
+    return lineups
+
+def extract_events(matches):
+    """Extract event data from matches."""
+    events = []
+    for match in matches:
+        fixture_id = match['id']
+        event_data = match.get('events', [])
+        
+        for event in event_data:
+            events.append({
+                'fixture_id': fixture_id,
+                'event_id': event.get('id'),
+                'type_id': event.get('type_id'),
+                'participant_id': event.get('participant_id'),
+                'player_id': event.get('player_id'),
+                'minute': event.get('minute'),
+                'extra_minute': event.get('extra_minute'),
+                'period_id': event.get('period_id')
+            })
+    
+    return events
+
+def extract_sidelined(matches):
+    """Extract sidelined player data from matches."""
+    sidelined = []
+    for match in matches:
+        fixture_id = match['id']
+        sidelined_data = match.get('sidelined', [])
+        
+        for player in sidelined_data:
+            sidelined.append({
+                'fixture_id': fixture_id,
+                'player_id': player.get('player_id'),
+                'team_id': player.get('participant_id'),
+                'category': player.get('category'),
+                'start_date': player.get('start_date'),
+                'end_date': player.get('end_date')
+            })
+    
+    return sidelined
+
+def save_to_raw_data(matches):
+    """Save all data types to raw data directory."""
+    from pathlib import Path
+    
+    raw_dir = RAW_DATA_DIR / 'sportmonks'
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    
+    logger.info("Extracting and saving data...")
+    
+    # 1. Process and save fixtures
+    fixtures_data = process_match_data(matches)
+    if fixtures_data:
+        fixtures_df = pd.DataFrame(fixtures_data)
+        
+        # Append to existing fixtures.csv
+        fixtures_file = raw_dir / 'fixtures.csv'
+        if fixtures_file.exists():
+            existing_fixtures = pd.read_csv(fixtures_file)
+            # Remove duplicates
+            existing_ids = set(existing_fixtures['fixture_id'].values)
+            new_fixtures = fixtures_df[~fixtures_df['fixture_id'].isin(existing_ids)]
+            if len(new_fixtures) > 0:
+                combined = pd.concat([existing_fixtures, new_fixtures], ignore_index=True)
+                combined.to_csv(fixtures_file, index=False)
+                logger.info(f"  ✅ Added {len(new_fixtures)} new fixtures")
+            else:
+                logger.info(f"  ℹ️  No new fixtures to add")
+        else:
+            fixtures_df.to_csv(fixtures_file, index=False)
+            logger.info(f"  ✅ Created fixtures.csv with {len(fixtures_df)} matches")
+    
+    # 2. Extract and save lineups
+    lineups_data = extract_lineups(matches)
+    if lineups_data:
+        lineups_df = pd.DataFrame(lineups_data)
+        lineups_file = raw_dir / 'lineups.csv'
+        if lineups_file.exists():
+            existing_lineups = pd.read_csv(lineups_file)
+            # Append new lineups
+            combined = pd.concat([existing_lineups, lineups_df], ignore_index=True)
+            # Remove duplicates based on fixture_id and player_id
+            combined = combined.drop_duplicates(subset=['fixture_id', 'player_id'], keep='last')
+            combined.to_csv(lineups_file, index=False)
+            logger.info(f"  ✅ Updated lineups.csv ({len(lineups_df)} new entries)")
+        else:
+            lineups_df.to_csv(lineups_file, index=False)
+            logger.info(f"  ✅ Created lineups.csv with {len(lineups_df)} entries")
+    
+    # 3. Extract and save events
+    events_data = extract_events(matches)
+    if events_data:
+        events_df = pd.DataFrame(events_data)
+        events_file = raw_dir / 'events.csv'
+        if events_file.exists():
+            existing_events = pd.read_csv(events_file)
+            combined = pd.concat([existing_events, events_df], ignore_index=True)
+            # Remove duplicates based on event_id
+            combined = combined.drop_duplicates(subset=['event_id'], keep='last')
+            combined.to_csv(events_file, index=False)
+            logger.info(f"  ✅ Updated events.csv ({len(events_data)} new entries)")
+        else:
+            events_df.to_csv(events_file, index=False)
+            logger.info(f"  ✅ Created events.csv with {len(events_df)} entries")
+    
+    # 4. Extract and save sidelined
+    sidelined_data = extract_sidelined(matches)
+    if sidelined_data:
+        sidelined_df = pd.DataFrame(sidelined_data)
+        sidelined_file = raw_dir / 'sidelined.csv'
+        if sidelined_file.exists():
+            existing_sidelined = pd.read_csv(sidelined_file)
+            combined = pd.concat([existing_sidelined, sidelined_df], ignore_index=True)
+            # Remove duplicates
+            combined = combined.drop_duplicates(subset=['fixture_id', 'player_id'], keep='last')
+            combined.to_csv(sidelined_file, index=False)
+            logger.info(f"  ✅ Updated sidelined.csv ({len(sidelined_data)} new entries)")
+        else:
+            sidelined_df.to_csv(sidelined_file, index=False)
+            logger.info(f"  ✅ Created sidelined.csv with {len(sidelined_df)} entries")
+    
+    return True
+
 def main():
     parser = argparse.ArgumentParser(description="Fetch latest match data from SportMonks")
     parser.add_argument('--days', type=int, default=7, help='Number of days to fetch (default: 7)')
+    parser.add_argument('--start-date', type=str, help='Start date (YYYY-MM-DD)')
+    parser.add_argument('--end-date', type=str, help='End date (YYYY-MM-DD)')
     args = parser.parse_args()
     
     logger.info("=" * 80)
     logger.info("FETCH LATEST DATA FROM SPORTMONKS")
     logger.info("=" * 80)
-    logger.info(f"Fetching last {args.days} days of data")
     
     # Calculate date range
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=args.days)
-    
-    start_str = start_date.strftime('%Y-%m-%d')
-    end_str = end_date.strftime('%Y-%m-%d')
+    if args.start_date and args.end_date:
+        start_str = args.start_date
+        end_str = args.end_date
+        logger.info(f"Using provided date range")
+    else:
+        logger.info(f"Fetching last {args.days} days of data")
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=args.days)
+        start_str = start_date.strftime('%Y-%m-%d')
+        end_str = end_date.strftime('%Y-%m-%d')
     
     logger.info(f"Date range: {start_str} to {end_str}")
     
-    # Fetch matches
+    # Fetch matches (now includes lineups, events, sidelined)
     matches = fetch_matches_by_date_range(start_str, end_str)
     
     if not matches:
         logger.warning("No matches fetched")
         return 1
     
-    # Process matches
-    logger.info("Processing match data...")
-    processed = process_match_data(matches)
+    logger.info(f"Fetched {len(matches)} matches")
     
-    logger.info(f"Processed {len(processed)} matches")
-    
-    # Update dataset
-    success = update_dataset(processed)
+    # Save all data to raw directory
+    success = save_to_raw_data(matches)
     
     if success:
-        logger.info("\n✅ Data fetch complete!")
+        logger.info("\n" + "=" * 80)
+        logger.info("✅ DATA FETCH COMPLETE!")
+        logger.info("=" * 80)
+        logger.info("Updated files in data/raw/sportmonks/:")
+        logger.info("  - fixtures.csv (match info, scores, odds, league_id)")
+        logger.info("  - lineups.csv (player lineups)")
+        logger.info("  - events.csv (goals, cards, substitutions)")
+        logger.info("  - sidelined.csv (injuries, suspensions)")
+        logger.info("\nNext step: Run feature engineering")
+        logger.info("  venv/bin/python 02_sportmonks_feature_engineering.py")
         return 0
     else:
         logger.error("\n❌ Data fetch failed")
@@ -234,3 +386,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+

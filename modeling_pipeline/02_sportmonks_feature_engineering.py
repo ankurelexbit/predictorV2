@@ -921,7 +921,7 @@ def select_features(df):
     """Select final feature columns for modeling."""
 
     # Core identification
-    id_cols = ['fixture_id', 'date', 'season_id', 'home_team_id', 'away_team_id',
+    id_cols = ['fixture_id', 'date', 'season_id', 'league_id', 'home_team_id', 'away_team_id',
                'home_team_name', 'away_team_name']
 
     # Target
@@ -1076,7 +1076,7 @@ def main():
     # Remove rows with too many missing values
     min_features = 10
     feature_cols = [c for c in df_features.columns if c not in
-                   ['fixture_id', 'date', 'season_id', 'home_team_id', 'away_team_id',
+                   ['fixture_id', 'date', 'season_id', 'league_id', 'home_team_id', 'away_team_id',
                     'home_team_name', 'away_team_name', 'target', 'home_win', 'draw',
                     'away_win', 'home_goals', 'away_goals']]
     df_features['feature_count'] = df_features[feature_cols].notna().sum(axis=1)

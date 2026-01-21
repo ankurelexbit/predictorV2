@@ -35,16 +35,16 @@ fi
 echo "✅ Data fetch complete" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
 
-# Step 2: Update Features
+# Step 2: Update Features (includes league_id)
 echo "STEP 2: Updating features..." | tee -a "$LOG_FILE"
-venv/bin/python 01_feature_engineering.py 2>&1 | tee -a "$LOG_FILE"
+venv/bin/python 02_sportmonks_feature_engineering.py 2>&1 | tee -a "$LOG_FILE"
 
 if [ $? -ne 0 ]; then
     echo "❌ Feature engineering failed!" | tee -a "$LOG_FILE"
     exit 1
 fi
 
-echo "✅ Features updated" | tee -a "$LOG_FILE"
+echo "✅ Features updated (with league_id)" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
 
 # Step 2.5: Update Player Stats Database
