@@ -25,7 +25,7 @@ echo "" | tee -a "$LOG_FILE"
 
 # Step 1: Fetch Latest Data
 echo "STEP 1: Fetching latest data..." | tee -a "$LOG_FILE"
-venv/bin/python scripts/fetch_latest_data.py --days 7 2>&1 | tee -a "$LOG_FILE"
+venv/bin/python 01_sportmonks_data_collection.py --update --days 7 2>&1 | tee -a "$LOG_FILE"
 
 if [ $? -ne 0 ]; then
     echo "❌ Data fetch failed!" | tee -a "$LOG_FILE"
