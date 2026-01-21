@@ -17,9 +17,10 @@ Data Collected:
 - Team & player information
 
 Usage:
-    python 01_sportmonks_data_collection.py --full          # Full historical collection
-    python 01_sportmonks_data_collection.py --update        # Update recent matches
-    python 01_sportmonks_data_collection.py --season 23690  # Specific season
+    python 01_sportmonks_data_collection.py --full              # Full historical collection
+    python 01_sportmonks_data_collection.py --update            # Update last 30 days
+    python 01_sportmonks_data_collection.py --update --days 7   # Weekly update (last 7 days)
+    python 01_sportmonks_data_collection.py --season 23690      # Specific season
 """
 
 import os
@@ -874,9 +875,10 @@ def main():
 
     parser = argparse.ArgumentParser(description="Sportmonks Data Collection")
     parser.add_argument("--full", action="store_true", help="Full historical collection")
-    parser.add_argument("--update", action="store_true", help="Update recent matches only")
-    parser.add_argument("--season", type=int, help="Collect specific season ID")
-    parser.add_argument("--min-year", type=int, default=2019, help="Minimum year to collect")
+    parser.add_argument("--update", action="store_true", help="Update recent matches")
+    parser.add_argument("--days", type=int, default=30, help="Number of days to update (default: 30, use 7 for weekly)")
+    parser.add_argument("--season", type=int, help="Collect specific season by ID")
+    parser.add_argument("--min-year", type=int, default=2019, help="Minimum year for full collection")
     parser.add_argument("--leagues", type=str, help="Comma-separated league IDs")
 
     args = parser.parse_args()
@@ -901,11 +903,11 @@ def main():
         data = collect_season_data(api, args.season, league_name)
 
     elif args.update:
-        # Update last 30 days
+        # Update last N days (default 30, or use --days for custom)
         end_date = datetime.now().strftime("%Y-%m-%d")
-        start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=args.days)).strftime("%Y-%m-%d")
 
-        logger.info(f"Updating fixtures from {start_date} to {end_date}")
+        logger.info(f"Updating fixtures from {start_date} to {end_date} ({args.days} days)")
         fixtures_raw = api.get_fixtures_by_date_range(
             start_date, end_date,
             list(leagues.keys())

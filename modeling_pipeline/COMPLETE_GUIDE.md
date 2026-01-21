@@ -109,8 +109,8 @@ scripts/weekly_model_retraining.sh
 **What it does**:
 1. **Fetch Latest Data** (last 7 days)
    - Calls SportMonks API for new matches
-   - Saves to `data/raw/sportmonks/fixtures.csv`
-   - Includes league_id ✅
+   - Saves to `data/raw/sportmonks/`
+   - Includes `league_id`, lineups, events, sidelined ✅
 
 2. **Update Features**
    - Runs `02_sportmonks_feature_engineering.py`
@@ -154,7 +154,7 @@ If you prefer to run steps individually:
 cd /Users/ankurgupta/code/predictorV2/modeling_pipeline
 
 # Step 1: Fetch latest data (last 7 days)
-venv/bin/python scripts/fetch_latest_data.py --days 7
+venv/bin/python 01_sportmonks_data_collection.py --update --days 7
 
 # Step 2: Update features (preserves league_id)
 venv/bin/python 02_sportmonks_feature_engineering.py
@@ -186,7 +186,7 @@ If you want to rebuild everything from scratch:
 cd /Users/ankurgupta/code/predictorV2/modeling_pipeline
 
 # Step 1: Fetch ALL historical data (2-3 hours)
-venv/bin/python scripts/fetch_latest_data.py --start-date 2019-01-01 --end-date 2026-01-21
+venv/bin/python 01_sportmonks_data_collection.py --full --min-year 2016
 
 # Step 2: Process features (includes league_id automatically)
 venv/bin/python 02_sportmonks_feature_engineering.py
@@ -207,7 +207,7 @@ venv/bin/python run_live_predictions.py
 - Want to retrain on all historical data
 - Testing new features
 
-**Note**: The feature engineering script (`02_sportmonks_feature_engineering.py`) now automatically preserves `league_id`, so no manual intervention needed!
+**Note**: The script automatically fetches fixtures, lineups, events, and sidelined data with `league_id` preserved!
 
 ---
 
@@ -380,7 +380,7 @@ venv/bin/python scripts/recalibrate_thresholds_weekly.py
 
 **Weekly Pipeline**:
 - `scripts/weekly_model_retraining.sh` - Automated weekly update
-- `scripts/fetch_latest_data.py` - Data fetching
+- `01_sportmonks_data_collection.py` - Data fetching (full + weekly updates)
 - `02_sportmonks_feature_engineering.py` - Feature engineering (preserves league_id)
 - `scripts/recalibrate_thresholds_weekly.py` - Threshold optimization
 - `scripts/validate_weekly_model.py` - Performance validation
@@ -401,7 +401,7 @@ venv/bin/python scripts/recalibrate_thresholds_weekly.py
 | **Check status** | `tail -f logs/live_predictions.log` | As needed |
 | **View predictions** | `cat data/predictions/recommendations_*.json \| tail -1` | As needed |
 | **Retrain model** | `venv/bin/python tune_for_draws.py` | Weekly (automated) |
-| **Fetch data** | `venv/bin/python scripts/fetch_latest_data.py --days 7` | Weekly (automated) |
+| **Fetch data** | `venv/bin/python 01_sportmonks_data_collection.py --update --days 7` | Weekly (automated) |
 | **Test API** | `venv/bin/python -c "from predict_live import LiveFeatureCalculator; ..."` | As needed |
 
 ---
