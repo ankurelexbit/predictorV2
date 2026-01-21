@@ -1,9 +1,0 @@
-feature1,feature2,correlation
-home_wins_3,home_form_3,0.9608881492322605
-away_wins_3,away_form_3,0.9611765899897924
-home_wins_5,home_form_5,0.9643014626448719
-away_wins_5,away_form_5,0.9645298640129024
-home_possession_pct_3,home_possession_pct_conceded_3,0.9754710747226165
-away_possession_pct_3,away_possession_pct_conceded_3,0.9809919470079304
-home_player_total_duels_3,home_player_total_duels_conceded_3,0.9980964329331703
-away_player_total_duels_3,away_player_total_duels_conceded_3,0.9982311808452119

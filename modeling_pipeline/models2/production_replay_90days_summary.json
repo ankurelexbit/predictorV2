@@ -1,0 +1,21 @@
+{
+  "replay_date": "2026-01-20T14:58:35.642822",
+  "period": "2025-10-22 to 2026-01-18",
+  "thresholds": {
+    "home": 0.65,
+    "draw": 0.45,
+    "away": 0.7
+  },
+  "total_matches": 892,
+  "total_bets": 175,
+  "bets_won": 144,
+  "win_rate": 82.28571428571428,
+  "total_staked": 17500.0,
+  "total_profit": 3825.0,
+  "roi": 21.857142857142858,
+  "bet_distribution": {
+    "home": 153,
+    "draw": 2,
+    "away": 20
+  }
+}

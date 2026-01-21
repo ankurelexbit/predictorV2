@@ -1,0 +1,31 @@
+{
+  "thresholds": {
+    "home": 0.65,
+    "draw": 0.45,
+    "away": 0.7
+  },
+  "performance": {
+    "roi": 21.857142857142858,
+    "profit": 3825.0,
+    "staked": 17500,
+    "bets": 175,
+    "won": 144,
+    "win_rate": 82.28571428571428
+  },
+  "calibration_date": "2026-01-20T12:52:25.743571",
+  "calibration_period": "90 days",
+  "matches_analyzed": 892,
+  "original_thresholds": {
+    "home": 0.7,
+    "draw": 0.4,
+    "away": 0.55
+  },
+  "original_performance": {
+    "roi": 13.990950226244344,
+    "profit": 3092.0,
+    "staked": 22100,
+    "bets": 221,
+    "won": 146,
+    "win_rate": 66.06334841628959
+  }
+}

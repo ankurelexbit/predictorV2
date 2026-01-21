@@ -1,0 +1,16 @@
+{
+  "analysis_date": "2026-01-20T15:54:30.836604",
+  "target_bets_per_day": 2,
+  "combinations_tested": 77,
+  "viable_combinations": 16,
+  "recommended_thresholds": {
+    "home": 0.5,
+    "draw": 0.4,
+    "away": 0.6
+  },
+  "expected_performance": {
+    "bets_per_day": 3.270666666666667,
+    "win_rate": 68.18181818181817,
+    "roi": 23.666666666666668
+  }
+}

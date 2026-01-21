@@ -1,0 +1,16 @@
+{
+  "replay_date": "2026-01-20T15:29:25.581602",
+  "runtime_hours": 0.12681282023588816,
+  "matches_processed": 200,
+  "matches_failed": 0,
+  "total_bets": 4,
+  "bets_won": 4,
+  "win_rate": 100.0,
+  "total_profit": 126.0,
+  "roi": 31.5,
+  "thresholds": {
+    "home": 0.65,
+    "draw": 0.45,
+    "away": 0.7
+  }
+}

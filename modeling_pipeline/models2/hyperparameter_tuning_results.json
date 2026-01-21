@@ -1,0 +1,28 @@
+{
+  "timestamp": "2026-01-19T16:03:42.545638",
+  "args": {
+    "features": "/Users/ankurgupta/code/predictorV2/modeling_pipeline/data/processed/sportmonks_features.csv",
+    "model": "xgboost",
+    "n_trials": 50,
+    "timeout": 3600
+  },
+  "results": {
+    "xgboost": {
+      "best_params": {
+        "max_depth": 6,
+        "learning_rate": 0.13125830316209655,
+        "n_estimators": 639,
+        "subsample": 0.8795975452591109,
+        "colsample_bytree": 0.7468055921327309,
+        "min_child_weight": 2,
+        "gamma": 0.023233444867279785,
+        "reg_alpha": 0.5399484409787432,
+        "reg_lambda": 0.7725378389307352,
+        "draw_class_weight_mult": 2.1204943511348593
+      },
+      "best_score": Infinity,
+      "n_trials": 50,
+      "best_trial": 0
+    }
+  }
+}

@@ -1,0 +1,5 @@
+date,home_team,away_team,bet_on,probability,odds,actual_outcome,won,stake,payout,profit,p_home,p_draw,p_away,api_time
+2025-10-26 14:00:00,Arsenal,Crystal Palace,home,0.6680691,1.43,home,True,100,143.0,43.0,0.6680691,0.20381244,0.1281184,3.2805278301239014
+2025-11-01 16:00:00,Paris Saint Germain,Nice,home,0.68755424,1.08,home,True,100,108.0,8.0,0.68755424,0.18059069,0.13185513,2.47328519821167
+2025-11-22 15:15:00,FC Barcelona,Athletic Club,home,0.6576999,1.4,home,True,100,140.0,40.0,0.6576999,0.21017942,0.13212073,2.5756499767303467
+2026-01-17 14:30:00,Borussia Dortmund,St. Pauli,home,0.6561293,1.35,home,True,100,135.0,35.0,0.6561293,0.21114379,0.13272694,2.1103110313415527

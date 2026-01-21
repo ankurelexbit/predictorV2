@@ -1,0 +1,18 @@
+{
+  "thresholds": {
+    "home": 0.7,
+    "draw": 0.39999999999999997,
+    "away": 0.5499999999999999
+  },
+  "metrics": {
+    "roi": 0.18990216631726065,
+    "profit": 27175.0,
+    "bets": 1431,
+    "wins": 1019,
+    "win_rate": 0.7120894479385046,
+    "total_staked": 143100,
+    "total_return": 170275.0
+  },
+  "date_analyzed": "2026-01-20T10:41:04.732558",
+  "matches_analyzed": 5577
+}

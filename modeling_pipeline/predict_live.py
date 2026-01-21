@@ -762,6 +762,7 @@ class LiveFeatureCalculator:
         home_team_name: str = None,
         away_team_name: str = None,
         league_name: str = None,
+        league_id: int = None,
         fixture_id: int = None
     ) -> Optional[Dict]:
         """
@@ -1166,6 +1167,9 @@ class LiveFeatureCalculator:
             'home_points': home_est_points,
             'away_points': away_est_points,
             'points_diff': home_est_points - away_est_points,  # Positive = home better
+            
+            # League ID (for league-specific patterns)
+            'league_id': league_id if league_id else 0,  # Default to 0 if not provided
 
             'home_injuries': 0,  # Would fetch from injuries API
             'away_injuries': 0,
@@ -1259,6 +1263,7 @@ def get_upcoming_fixtures(target_date: str) -> pd.DataFrame:
                 'fixture_id': fixture['id'],
                 'date': fixture.get('starting_at'),
                 'league_name': fixture.get('league', {}).get('name', 'Unknown'),
+                'league_id': fixture.get('league_id', 0),  # Add league_id
                 'home_team_id': home_team['id'],
                 'home_team_name': home_team['name'],
                 'away_team_id': away_team['id'],
@@ -1508,6 +1513,7 @@ def main():
                 home_team_name=fixture['home_team_name'],
                 away_team_name=fixture['away_team_name'],
                 league_name=fixture['league_name'],
+                league_id=fixture.get('league_id', 0),  # Add league_id
                 fixture_id=fixture.get('fixture_id')  # For lineup fetching
             )
 

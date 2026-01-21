@@ -1,0 +1,114 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:14
+    container_name: football-predictions-db
+    environment:
+      POSTGRES_DB: predictions
+      POSTGRES_USER: predictor
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  # Weekly Training Service
+  weekly-trainer:
+    build:
+      context: ..
+      dockerfile: production/Dockerfile.trainer
+    container_name: football-weekly-trainer
+    environment:
+      - SPORTMONKS_API_KEY=${SPORTMONKS_API_KEY}
+      - DATABASE_URL=postgresql://predictor:${DB_PASSWORD:-changeme}@postgres:5432/predictions
+    volumes:
+      - ../models:/app/models
+      - ../data:/app/data
+      - trainer_logs:/var/log/football-predictions
+    depends_on:
+      - postgres
+    restart: "no"  # Run via cron, not continuously
+    command: python production/weekly_training.py
+
+  # Hourly Prediction Service
+  hourly-predictor:
+    build:
+      context: ..
+      dockerfile: production/Dockerfile.predictor
+    container_name: football-hourly-predictor
+    environment:
+      - SPORTMONKS_API_KEY=${SPORTMONKS_API_KEY}
+      - DATABASE_URL=postgresql://predictor:${DB_PASSWORD:-changeme}@postgres:5432/predictions
+    volumes:
+      - ../models:/app/models:ro  # Read-only
+      - predictor_logs:/var/log/football-predictions
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    command: >
+      sh -c "
+        while true; do
+          python production/hourly_predictions.py
+          sleep 3600
+        done
+      "
+
+  # Results Settlement Service
+  results-settler:
+    build:
+      context: ..
+      dockerfile: production/Dockerfile.predictor
+    container_name: football-results-settler
+    environment:
+      - SPORTMONKS_API_KEY=${SPORTMONKS_API_KEY}
+      - DATABASE_URL=postgresql://predictor:${DB_PASSWORD:-changeme}@postgres:5432/predictions
+    volumes:
+      - ../models:/app/models:ro
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    command: >
+      sh -c "
+        while true; do
+          python production/settle_results.py
+          sleep 1800
+        done
+      "
+
+  # Web Dashboard (Optional)
+  dashboard:
+    build:
+      context: ..
+      dockerfile: production/Dockerfile.dashboard
+    container_name: football-dashboard
+    environment:
+      - DATABASE_URL=postgresql://predictor:${DB_PASSWORD:-changeme}@postgres:5432/predictions
+    ports:
+      - "8501:8501"  # Streamlit default port
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    command: streamlit run production/dashboard.py
+
+  # Redis Cache (Optional, for API caching)
+  redis:
+    image: redis:7-alpine
+    container_name: football-redis-cache
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  trainer_logs:
+  predictor_logs:
+  redis_data:
+
+networks:
+  default:
+    name: football-predictions-network

@@ -1,0 +1,16 @@
+{
+  "timestamp": "2026-01-19T16:08:45.902394",
+  "best_value": 0.9400838017463684,
+  "best_params": {
+    "n_estimators": 267,
+    "max_depth": 4,
+    "learning_rate": 0.011924478371113417,
+    "subsample": 0.8389413825998825,
+    "colsample_bytree": 0.9332711615777675,
+    "min_child_weight": 3,
+    "gamma": 0.3247907152342274,
+    "reg_alpha": 0.018307953404260027,
+    "reg_lambda": 0.2143277525521473
+  },
+  "n_trials": 50
+}

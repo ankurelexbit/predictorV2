@@ -1,0 +1,23 @@
+{
+  "analysis_date": "2026-01-20T15:40:15.350411",
+  "old_thresholds": {
+    "home": 0.65,
+    "draw": 0.45,
+    "away": 0.7
+  },
+  "new_thresholds": {
+    "home": 0.55,
+    "draw": 0.35,
+    "away": 0.6
+  },
+  "matches_analyzed": 200,
+  "old_bets": 4,
+  "new_bets": 35,
+  "old_bet_rate": 2.0,
+  "new_bet_rate": 17.5,
+  "bet_distribution": {
+    "home": 28,
+    "draw": 6,
+    "away": 1
+  }
+}

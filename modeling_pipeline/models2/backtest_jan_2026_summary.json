@@ -1,0 +1,46 @@
+{
+  "period": {
+    "start": "2026-01-01",
+    "end": "2026-01-20",
+    "days": 20
+  },
+  "matches": {
+    "total_analyzed": 171,
+    "bets_placed": 65,
+    "bet_frequency_pct": 38.0
+  },
+  "performance": {
+    "total_bets": 65,
+    "wins": 39,
+    "losses": 26,
+    "win_rate_pct": 60.0,
+    "total_staked": 6500,
+    "total_profit": 307.0,
+    "roi_pct": 4.7,
+    "avg_win": 74.54,
+    "avg_loss": -100.0,
+    "profit_factor": 1.12
+  },
+  "by_outcome": {
+    "home": {
+      "bets": 64,
+      "wins": 38,
+      "win_rate_pct": 59.4,
+      "profit": 259.0,
+      "roi_pct": 4.0
+    },
+    "away": {
+      "bets": 1,
+      "wins": 1,
+      "win_rate_pct": 100.0,
+      "profit": 48.0,
+      "roi_pct": 48.0
+    }
+  },
+  "thresholds_used": {
+    "home": 0.5,
+    "draw": 0.4,
+    "away": 0.6
+  },
+  "model": "xgboost_model_draw_tuned.joblib"
+}

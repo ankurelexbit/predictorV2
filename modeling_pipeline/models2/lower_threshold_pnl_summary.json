@@ -1,0 +1,19 @@
+{
+  "analysis_date": "2026-01-20T15:46:53.510389",
+  "thresholds": {
+    "home": 0.55,
+    "draw": 0.35,
+    "away": 0.6
+  },
+  "total_bets": 35,
+  "bets_won": 22,
+  "win_rate": 62.857142857142854,
+  "total_staked": 3500.0,
+  "total_profit": 232.0,
+  "roi": 6.628571428571428,
+  "bet_distribution": {
+    "home": 28,
+    "draw": 6,
+    "away": 1
+  }
+}
