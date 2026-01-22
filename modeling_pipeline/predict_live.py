@@ -337,7 +337,7 @@ class LiveFeatureCalculator:
         """
         try:
             response = self._api_call(f"fixtures/{fixture_id}", params={
-                'include': 'lineups'
+                'include': 'lineups;participants'  # Need participants to get team IDs
             })
 
             if not response or 'data' not in response:
@@ -393,6 +393,61 @@ class LiveFeatureCalculator:
         except Exception as e:
             logger.warning(f"Error fetching lineups for fixture {fixture_id}: {e}")
             return None
+
+    def get_team_injuries(self, team_id: int) -> int:
+        """
+        Fetch current injury/suspension count for a team.
+        
+        Args:
+            team_id: Team ID
+            
+        Returns:
+            Number of currently unavailable players (injured/suspended)
+        """
+        try:
+            response = self._api_call(f"teams/{team_id}", params={
+                'include': 'sidelined'
+            })
+            
+            if not response or 'data' not in response:
+                return 0
+            
+            team_data = response['data']
+            sidelined = team_data.get('sidelined', [])
+            
+            if not sidelined:
+                return 0
+            
+            # Count currently unavailable players
+            today = datetime.now().date()
+            count = 0
+            
+            for injury in sidelined:
+                # Check if injury/suspension is current
+                completed = injury.get('completed', False)
+                
+                if completed:
+                    continue  # Player recovered
+                
+                end_date_str = injury.get('end_date')
+                
+                if end_date_str:
+                    try:
+                        end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                        if end_date >= today:
+                            count += 1  # Still injured/suspended
+                    except:
+                        count += 1  # Can't parse date, assume unavailable
+                else:
+                    count += 1  # No end date, assume unavailable
+            
+            logger.info(f"Team {team_id}: {count} injured/suspended players")
+            return count
+            
+        except Exception as e:
+            logger.warning(f"Error fetching injuries for team {team_id}: {e}")
+            return 0
+
 
     def _parse_statistics(self, stats: List[Dict]) -> Dict:
         """Parse statistics from API format to usable dict."""
@@ -1171,9 +1226,16 @@ class LiveFeatureCalculator:
             # League ID (for league-specific patterns)
             'league_id': league_id if league_id else 0,  # Default to 0 if not provided
 
-            'home_injuries': 0,  # Would fetch from injuries API
-            'away_injuries': 0,
-            'injury_diff': 0,
+
+            'home_injuries': self.get_team_injuries(home_team_id),
+            'away_injuries': self.get_team_injuries(away_team_id),
+        })
+        
+        # Calculate injury difference
+        features['injury_diff'] = features['home_injuries'] - features['away_injuries']
+        
+        # Add remaining features
+        features.update({
             'round_num': 20,
             'season_progress': 0.5,
             'is_early_season': 0,

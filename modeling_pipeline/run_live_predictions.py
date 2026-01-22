@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from predict_live import LiveFeatureCalculator, load_models, get_upcoming_fixtures
 from production_thresholds import get_production_thresholds
 from utils import setup_logger
+from db_predictions import PredictionsDB
 
 logger = setup_logger("live_predictions")
 
@@ -111,6 +112,11 @@ def main():
                     best_prob = model_probs[outcome]
             
             if best_bet:
+                # Extract odds from features
+                odds_home = features.get('market_odds_home', features.get('odds_home'))
+                odds_draw = features.get('market_odds_draw', features.get('odds_draw'))
+                odds_away = features.get('market_odds_away', features.get('odds_away'))
+                
                 recommendations.append({
                     'fixture_id': fixture.get('fixture_id'),
                     'date': str(fixture['date']),
@@ -122,6 +128,10 @@ def main():
                     'p_home': float(p_home),
                     'p_draw': float(p_draw),
                     'p_away': float(p_away),
+                    'odds_home': float(odds_home) if odds_home else None,
+                    'odds_draw': float(odds_draw) if odds_draw else None,
+                    'odds_away': float(odds_away) if odds_away else None,
+                    'features': features,  # Store all features
                     'prediction_time': datetime.now().isoformat()
                 })
                 
@@ -153,6 +163,62 @@ def main():
             json.dump(recommendations, f, indent=2, default=str)
         
         logger.info(f"\n💾 Recommendations saved to: {output_file}")
+        
+        # Save to Supabase database
+        logger.info("\n💾 Saving predictions to Supabase...")
+        try:
+            with PredictionsDB() as db:
+                saved_count = 0
+                for rec in recommendations:
+                    # Extract odds from features if available
+                    # Features are stored in the calculator, we need to get them from the last prediction
+                    odds_home = rec.get('odds_home')
+                    odds_draw = rec.get('odds_draw')
+                    odds_away = rec.get('odds_away')
+                    features_dict = rec.get('features', {})
+                    
+                    # Calculate best odds
+                    best_odds = None
+                    if odds_home and odds_draw and odds_away:
+                        bet_type = rec.get('bet_on', '').upper()
+                        if bet_type == 'HOME':
+                            best_odds = odds_home
+                        elif bet_type == 'DRAW':
+                            best_odds = odds_draw
+                        elif bet_type == 'AWAY':
+                            best_odds = odds_away
+                    
+                    # Prepare prediction data for database
+                    prediction_data = {
+                        'fixture_id': rec.get('fixture_id'),
+                        'match_date': rec.get('date'),
+                        'home_team': rec.get('home_team'),
+                        'away_team': rec.get('away_team'),
+                        'league': rec.get('league'),
+                        'league_id': None,  # Can be added if available
+                        'prob_home': rec.get('p_home'),
+                        'prob_draw': rec.get('p_draw'),
+                        'prob_away': rec.get('p_away'),
+                        'recommended_bet': rec.get('bet_on', 'NO_BET').upper(),
+                        'confidence': rec.get('confidence'),
+                        'odds_home': odds_home,
+                        'odds_draw': odds_draw,
+                        'odds_away': odds_away,
+                        'best_odds': best_odds,
+                        'features_count': len(features_dict) if features_dict else 271,
+                        'model_version': 'xgboost_draw_tuned',
+                        'thresholds': json.dumps(thresholds),
+                        'features': json.dumps(features_dict) if features_dict else None
+                    }
+                    
+                    prediction_id = db.insert_prediction(prediction_data)
+                    if prediction_id:
+                        saved_count += 1
+                
+                logger.info(f"✅ Saved {saved_count}/{len(recommendations)} predictions to database")
+        except Exception as e:
+            logger.error(f"❌ Database save failed: {e}")
+            logger.info("Predictions still saved to JSON file")
         
         # Print recommendations
         logger.info("\n📋 BETTING RECOMMENDATIONS:")
