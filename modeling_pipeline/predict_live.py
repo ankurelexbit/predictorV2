@@ -394,15 +394,17 @@ class LiveFeatureCalculator:
             logger.warning(f"Error fetching lineups for fixture {fixture_id}: {e}")
             return None
 
-    def get_team_injuries(self, team_id: int) -> int:
+    def get_team_injuries(self, team_id: int, return_details: bool = False):
         """
         Fetch current injury/suspension count for a team.
         
         Args:
             team_id: Team ID
+            return_details: If True, return detailed injury info; if False, return count only
             
         Returns:
-            Number of currently unavailable players (injured/suspended)
+            If return_details=False: Number of currently unavailable players
+            If return_details=True: Tuple of (count, list of injury details)
         """
         try:
             response = self._api_call(f"teams/{team_id}", params={
@@ -410,17 +412,18 @@ class LiveFeatureCalculator:
             })
             
             if not response or 'data' not in response:
-                return 0
+                return (0, []) if return_details else 0
             
             team_data = response['data']
             sidelined = team_data.get('sidelined', [])
             
             if not sidelined:
-                return 0
+                return (0, []) if return_details else 0
             
-            # Count currently unavailable players
+            # Count currently unavailable players and collect details
             today = datetime.now().date()
             count = 0
+            injury_details = []
             
             for injury in sidelined:
                 # Check if injury/suspension is current
@@ -430,23 +433,40 @@ class LiveFeatureCalculator:
                     continue  # Player recovered
                 
                 end_date_str = injury.get('end_date')
+                is_current = False
                 
                 if end_date_str:
                     try:
                         end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
                         if end_date >= today:
-                            count += 1  # Still injured/suspended
+                            is_current = True
                     except:
-                        count += 1  # Can't parse date, assume unavailable
+                        is_current = True  # Can't parse date, assume unavailable
                 else:
-                    count += 1  # No end date, assume unavailable
+                    is_current = True  # No end date, assume unavailable
+                
+                if is_current:
+                    count += 1
+                    if return_details:
+                        injury_details.append({
+                            'player_id': injury.get('player_id'),
+                            'player_name': injury.get('player_name', 'Unknown'),
+                            'type': injury.get('type', {}).get('name', 'injury'),
+                            'reason': injury.get('reason', 'Unknown'),
+                            'start_date': injury.get('start_date'),
+                            'end_date': end_date_str
+                        })
             
             logger.info(f"Team {team_id}: {count} injured/suspended players")
+            
+            if return_details:
+                return count, injury_details
             return count
             
         except Exception as e:
             logger.warning(f"Error fetching injuries for team {team_id}: {e}")
-            return 0
+            return (0, []) if return_details else 0
+
 
 
     def _parse_statistics(self, stats: List[Dict]) -> Dict:
@@ -1287,7 +1307,73 @@ class LiveFeatureCalculator:
         })
 
         logger.info(f"Built {len(features)} features")
-        return features
+        
+        # Collect comprehensive metadata for storage
+        metadata = {
+            'fixture_id': fixture_id,
+            'kickoff_time': fixture_date,
+            'prediction_time': datetime.now(),
+        }
+        
+        # Lineup metadata
+        if lineups_data and use_real_player_data:
+            # Extract player IDs from lineups_data
+            lineup_dict = {
+                'home': lineups_data.get('home_player_ids', []),
+                'away': lineups_data.get('away_player_ids', [])
+            }
+            
+            from prediction_metadata import extract_lineup_metadata
+            lineup_meta = extract_lineup_metadata(lineup_dict, self.player_manager)
+            metadata.update(lineup_meta)
+        else:
+            metadata.update({
+                'home_lineup': None,
+                'away_lineup': None,
+                'lineup_available': False,
+                'lineup_coverage_home': 0.0,
+                'lineup_coverage_away': 0.0,
+                'used_lineup_data': False
+            })
+        
+        # Injury metadata (fetch detailed info)
+        home_injury_count, home_injury_details = self.get_team_injuries(home_team_id, return_details=True)
+        away_injury_count, away_injury_details = self.get_team_injuries(away_team_id, return_details=True)
+        
+        metadata.update({
+            'home_injuries_count': home_injury_count,
+            'away_injuries_count': away_injury_count,
+            'home_injured_players': {'players': home_injury_details} if home_injury_details else None,
+            'away_injured_players': {'players': away_injury_details} if away_injury_details else None,
+            'used_injury_data': home_injury_count > 0 or away_injury_count > 0
+        })
+        
+        # Odds metadata (store the odds_data which may contain multiple bookmakers)
+        metadata.update({
+            'odds_home': odds_data.get('odds_home'),
+            'odds_draw': odds_data.get('odds_draw'),
+            'odds_away': odds_data.get('odds_away'),
+            'bookmaker_odds': odds_data.get('bookmakers'),  # If available from odds_fetcher
+        })
+        
+        # Calculate timing
+        time_diff = fixture_date - datetime.now()
+        hours_before = time_diff.total_seconds() / 3600
+        metadata['hours_before_kickoff'] = round(hours_before, 2)
+        
+        # Data quality score
+        from prediction_metadata import calculate_data_quality_score
+        metadata['data_quality_score'] = calculate_data_quality_score(
+            metadata,
+            metadata,
+            len(features)
+        )
+        
+        # Store feature count
+        metadata['features_count'] = len(features)
+        
+        return features, metadata
+
 
 
 def get_upcoming_fixtures(target_date: str) -> pd.DataFrame:

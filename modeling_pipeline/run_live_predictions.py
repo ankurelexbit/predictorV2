@@ -74,8 +74,8 @@ def main():
         try:
             logger.info(f"\n[{idx+1}/{len(all_fixtures)}] {fixture['home_team_name']} vs {fixture['away_team_name']}")
             
-            # Build features with live API calls
-            features = calculator.build_features_for_match(
+            # Build features with live API calls (now returns features and metadata)
+            result = calculator.build_features_for_match(
                 home_team_id=int(fixture['home_team_id']),
                 away_team_id=int(fixture['away_team_id']),
                 fixture_date=pd.to_datetime(fixture['date']),
@@ -85,10 +85,13 @@ def main():
                 fixture_id=fixture.get('fixture_id')
             )
             
-            if not features:
+            if not result:
                 logger.warning("  ⚠️  Could not generate features")
                 errors += 1
                 continue
+            
+            # Unpack features and metadata
+            features, metadata = result
             
             logger.info(f"  ✅ Generated {len(features)} features")
             
@@ -111,30 +114,37 @@ def main():
                     best_bet = outcome
                     best_prob = model_probs[outcome]
             
+            # Extract odds from features or metadata (needed for all predictions)
+            odds_home = metadata.get('odds_home') or features.get('odds_home')
+            odds_draw = metadata.get('odds_draw') or features.get('odds_draw')
+            odds_away = metadata.get('odds_away') or features.get('odds_away')
+            
+            # Calculate our fair odds
+            from prediction_metadata import calculate_fair_odds
+            our_odds = calculate_fair_odds(p_home, p_draw, p_away)
+            
+            # Store ALL predictions (including NO_BET)
+            recommendations.append({
+                'fixture_id': fixture.get('fixture_id'),
+                'date': str(fixture['date']),
+                'league': fixture.get('league_name'),
+                'home_team': fixture['home_team_name'],
+                'away_team': fixture['away_team_name'],
+                'bet_on': best_bet if best_bet else 'no_bet',
+                'confidence': float(best_prob) if best_prob > 0 else None,
+                'p_home': float(p_home),
+                'p_draw': float(p_draw),
+                'p_away': float(p_away),
+                'odds_home': float(odds_home) if odds_home else None,
+                'odds_draw': float(odds_draw) if odds_draw else None,
+                'odds_away': float(odds_away) if odds_away else None,
+                'features': features,  # Store all features
+                'metadata': metadata,  # Store comprehensive metadata
+                'our_odds': our_odds,  # Our calculated fair odds
+                'prediction_time': datetime.now().isoformat()
+            })
+            
             if best_bet:
-                # Extract odds from features
-                odds_home = features.get('market_odds_home', features.get('odds_home'))
-                odds_draw = features.get('market_odds_draw', features.get('odds_draw'))
-                odds_away = features.get('market_odds_away', features.get('odds_away'))
-                
-                recommendations.append({
-                    'fixture_id': fixture.get('fixture_id'),
-                    'date': str(fixture['date']),
-                    'league': fixture.get('league_name'),
-                    'home_team': fixture['home_team_name'],
-                    'away_team': fixture['away_team_name'],
-                    'bet_on': best_bet,
-                    'confidence': float(best_prob),
-                    'p_home': float(p_home),
-                    'p_draw': float(p_draw),
-                    'p_away': float(p_away),
-                    'odds_home': float(odds_home) if odds_home else None,
-                    'odds_draw': float(odds_draw) if odds_draw else None,
-                    'odds_away': float(odds_away) if odds_away else None,
-                    'features': features,  # Store all features
-                    'prediction_time': datetime.now().isoformat()
-                })
-                
                 logger.info(f"  💰 RECOMMENDATION: Bet {best_bet.upper()} @ {best_prob*100:.1f}% confidence")
             else:
                 logger.info(f"  ⏭️  No bet (no threshold exceeded)")
@@ -144,13 +154,18 @@ def main():
             errors += 1
             continue
     
-    # 4. Save recommendations
+    # 4. Save predictions (all predictions, including NO_BET)
     logger.info("\n" + "=" * 80)
     logger.info("SUMMARY")
     logger.info("=" * 80)
     logger.info(f"Fixtures processed: {len(all_fixtures)}")
     logger.info(f"Errors: {errors}")
-    logger.info(f"Recommendations: {len(recommendations)}")
+    logger.info(f"Total predictions: {len(recommendations)}")
+    
+    # Count actual betting recommendations (excluding NO_BET)
+    betting_recommendations = [r for r in recommendations if r.get('bet_on') != 'no_bet']
+    logger.info(f"Betting recommendations: {len(betting_recommendations)}")
+    logger.info(f"No-bet predictions: {len(recommendations) - len(betting_recommendations)}")
     
     if recommendations:
         # Save to JSON
@@ -170,8 +185,11 @@ def main():
             with PredictionsDB() as db:
                 saved_count = 0
                 for rec in recommendations:
-                    # Extract odds from features if available
-                    # Features are stored in the calculator, we need to get them from the last prediction
+                    # Extract metadata
+                    metadata = rec.get('metadata', {})
+                    our_odds = rec.get('our_odds', {})
+                    
+                    # Extract odds
                     odds_home = rec.get('odds_home')
                     odds_draw = rec.get('odds_draw')
                     odds_away = rec.get('odds_away')
@@ -188,27 +206,70 @@ def main():
                         elif bet_type == 'AWAY':
                             best_odds = odds_away
                     
-                    # Prepare prediction data for database
+                    # Prepare prediction data for database with comprehensive metadata
                     prediction_data = {
+                        # Basic prediction info
                         'fixture_id': rec.get('fixture_id'),
                         'match_date': rec.get('date'),
                         'home_team': rec.get('home_team'),
                         'away_team': rec.get('away_team'),
                         'league': rec.get('league'),
-                        'league_id': None,  # Can be added if available
-                        'prob_home': rec.get('p_home'),
-                        'prob_draw': rec.get('p_draw'),
-                        'prob_away': rec.get('p_away'),
+                        'league_id': None,
+                        
+                        # Probabilities (convert numpy types to Python float)
+                        'prob_home': float(rec.get('p_home')),
+                        'prob_draw': float(rec.get('p_draw')),
+                        'prob_away': float(rec.get('p_away')),
+                        
+                        # Recommendation
                         'recommended_bet': rec.get('bet_on', 'NO_BET').upper(),
-                        'confidence': rec.get('confidence'),
-                        'odds_home': odds_home,
-                        'odds_draw': odds_draw,
-                        'odds_away': odds_away,
-                        'best_odds': best_odds,
+                        'confidence': float(rec.get('confidence')) if rec.get('confidence') else None,
+                        
+                        # Market odds
+                        'odds_home': float(odds_home) if odds_home else None,
+                        'odds_draw': float(odds_draw) if odds_draw else None,
+                        'odds_away': float(odds_away) if odds_away else None,
+                        'best_odds': float(best_odds) if best_odds else None,
+                        
+                        # Features
                         'features_count': len(features_dict) if features_dict else 271,
                         'model_version': 'xgboost_draw_tuned',
                         'thresholds': json.dumps(thresholds),
-                        'features': json.dumps(features_dict) if features_dict else None
+                        'features': json.dumps(features_dict, default=float) if features_dict else None,
+                        
+                        # NEW: Timing data
+                        'kickoff_time': metadata.get('kickoff_time'),
+                        'prediction_time': metadata.get('prediction_time'),
+                        'hours_before_kickoff': float(metadata.get('hours_before_kickoff')) if metadata.get('hours_before_kickoff') else None,
+                        
+                        # NEW: Lineup data
+                        'home_lineup': json.dumps(metadata.get('home_lineup'), default=float) if metadata.get('home_lineup') else None,
+                        'away_lineup': json.dumps(metadata.get('away_lineup'), default=float) if metadata.get('away_lineup') else None,
+                        'lineup_available': metadata.get('lineup_available', False),
+                        'lineup_coverage_home': float(metadata.get('lineup_coverage_home', 0)),
+                        'lineup_coverage_away': float(metadata.get('lineup_coverage_away', 0)),
+                        
+                        # NEW: Injury data
+                        'home_injuries_count': int(metadata.get('home_injuries_count', 0)),
+                        'away_injuries_count': int(metadata.get('away_injuries_count', 0)),
+                        'home_injured_players': json.dumps(metadata.get('home_injured_players')) if metadata.get('home_injured_players') else None,
+                        'away_injured_players': json.dumps(metadata.get('away_injured_players')) if metadata.get('away_injured_players') else None,
+                        
+                        # NEW: Bookmaker odds
+                        'bookmaker_odds': json.dumps(metadata.get('bookmaker_odds'), default=float) if metadata.get('bookmaker_odds') else None,
+                        'best_odds_home': float(metadata.get('best_odds_home') or odds_home) if (metadata.get('best_odds_home') or odds_home) else None,
+                        'best_odds_draw': float(metadata.get('best_odds_draw') or odds_draw) if (metadata.get('best_odds_draw') or odds_draw) else None,
+                        'best_odds_away': float(metadata.get('best_odds_away') or odds_away) if (metadata.get('best_odds_away') or odds_away) else None,
+                        
+                        # NEW: Our calculated fair odds
+                        'our_odds_home': float(our_odds.get('our_odds_home')) if our_odds.get('our_odds_home') else None,
+                        'our_odds_draw': float(our_odds.get('our_odds_draw')) if our_odds.get('our_odds_draw') else None,
+                        'our_odds_away': float(our_odds.get('our_odds_away')) if our_odds.get('our_odds_away') else None,
+                        
+                        # NEW: Data quality flags
+                        'used_lineup_data': metadata.get('used_lineup_data', False),
+                        'used_injury_data': metadata.get('used_injury_data', False),
+                        'data_quality_score': float(metadata.get('data_quality_score', 0))
                     }
                     
                     prediction_id = db.insert_prediction(prediction_data)
@@ -220,15 +281,18 @@ def main():
             logger.error(f"❌ Database save failed: {e}")
             logger.info("Predictions still saved to JSON file")
         
-        # Print recommendations
-        logger.info("\n📋 BETTING RECOMMENDATIONS:")
-        for rec in recommendations:
-            logger.info(f"\n  {rec['home_team']} vs {rec['away_team']}")
-            logger.info(f"  League: {rec['league']}")
-            logger.info(f"  Date: {rec['date']}")
-            logger.info(f"  → Bet: {rec['bet_on'].upper()} @ {rec['confidence']*100:.1f}%")
+        # Print only actual betting recommendations (not NO_BET)
+        if betting_recommendations:
+            logger.info("\n📋 BETTING RECOMMENDATIONS:")
+            for rec in betting_recommendations:
+                logger.info(f"\n  {rec['home_team']} vs {rec['away_team']}")
+                logger.info(f"  League: {rec['league']}")
+                logger.info(f"  Date: {rec['date']}")
+                logger.info(f"  → Bet: {rec['bet_on'].upper()} @ {rec['confidence']*100:.1f}%")
+        else:
+            logger.info("\n⏭️  No betting opportunities found (all predictions below threshold)")
     else:
-        logger.info("\n⏭️  No betting opportunities found")
+        logger.info("\n⏭️  No predictions generated")
     
     logger.info("\n" + "=" * 80)
 

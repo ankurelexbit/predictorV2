@@ -75,13 +75,27 @@ venv/bin/python 02_sportmonks_feature_engineering.py
 ### 2.5. Build Player Database (Optional but Recommended)
 
 **Build player statistics database** for lineup-based predictions:
+
+#### Standard Build (Original)
 ```bash
 venv/bin/python build_player_database.py --full
 ```
+**Time**: ~10-30 minutes for basic build (no API fetch)
+
+#### Fast Build (Optimized - Recommended for API Fetch)
+```bash
+# 10x faster with parallel API requests
+venv/bin/python build_player_database_optimized.py \
+    --fetch-api \
+    --max-api-players 20000 \
+    --concurrent-requests 50
+```
+**Time**: ~20-30 minutes for 20,000 players (vs 3 hours with original)
 
 **What it does**:
 - Reads historical lineups from `data/raw/sportmonks/lineups.csv`
 - Aggregates player statistics (rating, touches, clearances, duels)
+- Optionally fetches player names/details from API (`--fetch-api`)
 - Saves to `data/processed/player_database/player_stats_db.json`
 
 **Why needed**:
@@ -91,9 +105,15 @@ venv/bin/python build_player_database.py --full
 
 **Output**: `data/processed/player_database/player_stats_db.json`
 
-**Note**: This is a one-time build (~10-30 minutes). Update weekly with:
+**Performance Comparison**:
+| Version | Time (20K players) | Features |
+|---------|-------------------|----------|
+| Standard | ~3 hours | Sequential API calls |
+| Optimized | ~20-30 min | Parallel requests, checkpointing |
+
+**Note**: This is a one-time build. Update weekly with:
 ```bash
-venv/bin/python build_player_database.py --update
+venv/bin/python build_player_database_optimized.py --update
 ```
 
 ### 3. Model Training
@@ -420,6 +440,8 @@ modeling_pipeline/
 │   └── daily_results_update.sh              # Automation
 ├── 01_sportmonks_data_collection.py         # Data fetching
 ├── 02_sportmonks_feature_engineering.py     # Feature generation
+├── build_player_database.py                 # Player DB builder (standard)
+├── build_player_database_optimized.py       # Player DB builder (10x faster)
 ├── tune_for_draws.py                        # Pre-game training
 ├── build_in_game_dataset.py                 # In-game data prep
 ├── run_live_predictions.py                  # Live predictions
@@ -450,6 +472,13 @@ venv/bin/python 01_sportmonks_data_collection.py --full
 
 # 2. Generate features
 venv/bin/python 02_sportmonks_feature_engineering.py
+
+# 2.5. Build player database (optional but recommended)
+# Use optimized version for faster build (20-30 min vs 3 hours)
+venv/bin/python build_player_database_optimized.py \
+    --fetch-api \
+    --max-api-players 20000 \
+    --concurrent-requests 50
 
 # 3. Train model
 venv/bin/python tune_for_draws.py

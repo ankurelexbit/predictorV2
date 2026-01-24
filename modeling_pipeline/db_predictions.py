@@ -65,14 +65,30 @@ class PredictionsDB:
                     prob_home, prob_draw, prob_away,
                     recommended_bet, confidence,
                     odds_home, odds_draw, odds_away, best_odds,
-                    features_count, model_version, thresholds, features
+                    features_count, model_version, thresholds, features,
+                    kickoff_time, prediction_time, hours_before_kickoff,
+                    home_lineup, away_lineup, lineup_available, 
+                    lineup_coverage_home, lineup_coverage_away,
+                    home_injuries_count, away_injuries_count,
+                    home_injured_players, away_injured_players,
+                    bookmaker_odds, best_odds_home, best_odds_draw, best_odds_away,
+                    our_odds_home, our_odds_draw, our_odds_away,
+                    used_lineup_data, used_injury_data, data_quality_score
                 ) VALUES (
                     %(fixture_id)s, %(match_date)s, %(home_team)s, %(away_team)s, 
                     %(league)s, %(league_id)s,
                     %(prob_home)s, %(prob_draw)s, %(prob_away)s,
                     %(recommended_bet)s, %(confidence)s,
                     %(odds_home)s, %(odds_draw)s, %(odds_away)s, %(best_odds)s,
-                    %(features_count)s, %(model_version)s, %(thresholds)s, %(features)s
+                    %(features_count)s, %(model_version)s, %(thresholds)s, %(features)s,
+                    %(kickoff_time)s, %(prediction_time)s, %(hours_before_kickoff)s,
+                    %(home_lineup)s, %(away_lineup)s, %(lineup_available)s,
+                    %(lineup_coverage_home)s, %(lineup_coverage_away)s,
+                    %(home_injuries_count)s, %(away_injuries_count)s,
+                    %(home_injured_players)s, %(away_injured_players)s,
+                    %(bookmaker_odds)s, %(best_odds_home)s, %(best_odds_draw)s, %(best_odds_away)s,
+                    %(our_odds_home)s, %(our_odds_draw)s, %(our_odds_away)s,
+                    %(used_lineup_data)s, %(used_injury_data)s, %(data_quality_score)s
                 )
                 ON CONFLICT (fixture_id, created_at) DO NOTHING
                 RETURNING id;
