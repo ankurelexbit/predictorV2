@@ -1,0 +1,46 @@
+================================================================================
+PLAYER DATABASE SUMMARY
+================================================================================
+
+Total Players: 18,354
+Players with Names: 1,323
+Built: 2026-01-24 19:34:36
+
+Players by Position:
+  None: 17,042
+  Defender: 519
+  Midfielder: 399
+  Attacker: 263
+  Goalkeeper: 119
+  Coach: 12
+
+Statistic Coverage (# players with stat):
+  goals: 16,638 (90.7%)
+  shots_total: 12,066 (65.7%)
+  interceptions: 11,990 (65.3%)
+  fouls: 11,990 (65.3%)
+  fouls_drawn: 11,990 (65.3%)
+  passes: 11,990 (65.3%)
+  accurate_passes_alt: 11,990 (65.3%)
+  clearances: 11,989 (65.3%)
+  total_duels: 11,951 (65.1%)
+  duels_won: 11,951 (65.1%)
+  shots_on_target: 11,945 (65.1%)
+  saves: 11,929 (65.0%)
+  tackles: 11,924 (65.0%)
+  key_passes: 11,910 (64.9%)
+  aerials_won: 11,837 (64.5%)
+  dispossessed: 11,827 (64.4%)
+  saves_insidebox: 11,750 (64.0%)
+  duels_lost: 11,705 (63.8%)
+  blocked_shots: 11,590 (63.1%)
+  long_balls_won: 10,978 (59.8%)
+  long_balls: 10,978 (59.8%)
+  dribble_attempts: 10,717 (58.4%)
+  successful_dribbles: 10,715 (58.4%)
+  touches: 6,821 (37.2%)
+  aerials_lost: 6,463 (35.2%)
+  possession_lost: 5,406 (29.5%)
+  tackles_won: 5,205 (28.4%)
+  aerials_total: 5,186 (28.3%)
+  goals_conceded: 5,160 (28.1%)

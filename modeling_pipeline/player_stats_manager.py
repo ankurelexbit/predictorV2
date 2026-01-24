@@ -188,6 +188,57 @@ class PlayerStatsManager:
 
         return aggregated
 
+    def calculate_player_rating(self, player_id: int) -> float:
+        """
+        Calculate a player rating (0-10 scale) from their actual stats.
+        
+        This creates a synthetic rating based on key performance metrics:
+        - Defensive: tackles, interceptions, clearances
+        - Offensive: passes, dribbles, shots
+        - Physical: duels won, aerials won
+        
+        Args:
+            player_id: Player ID
+            
+        Returns:
+            Calculated rating (0-10 scale), or 6.5 if no data
+        """
+        player_data = self.player_db.get(player_id)
+        if not player_data or 'avg_stats' not in player_data:
+            return 6.5
+        
+        stats = player_data['avg_stats']
+        
+        # Base rating
+        rating = 6.5
+        
+        # Defensive contribution (+0 to +1.5)
+        tackles = stats.get('tackles', {}).get('mean', 0)
+        interceptions = stats.get('interceptions', {}).get('mean', 0)
+        clearances = stats.get('clearances', {}).get('mean', 0)
+        defensive_score = min((tackles * 0.3 + interceptions * 0.3 + clearances * 0.2), 1.5)
+        
+        # Passing contribution (+0 to +1.0)
+        accurate_passes = stats.get('accurate_passes_alt', {}).get('mean', 0)
+        key_passes = stats.get('key_passes', {}).get('mean', 0)
+        passing_score = min((accurate_passes / 50 * 0.7 + key_passes * 0.3), 1.0)
+        
+        # Duel/Physical contribution (+0 to +0.8)
+        duels_won = stats.get('duels_won', {}).get('mean', 0)
+        aerials_won = stats.get('aerials_won', {}).get('mean', 0)
+        physical_score = min((duels_won / 5 * 0.5 + aerials_won / 2 * 0.3), 0.8)
+        
+        # Offensive contribution (+0 to +0.7)
+        shots = stats.get('shots_total', {}).get('mean', 0)
+        successful_dribbles = stats.get('successful_dribbles', {}).get('mean', 0)
+        offensive_score = min((shots * 0.3 + successful_dribbles * 0.2), 0.7)
+        
+        # Combine all components
+        rating += defensive_score + passing_score + physical_score + offensive_score
+        
+        # Cap at 10.0
+        return min(rating, 10.0)
+
     def get_team_average_rating(self, player_ids: List[int]) -> float:
         """
         Get average player rating for a team lineup.
@@ -200,7 +251,8 @@ class PlayerStatsManager:
         """
         ratings = []
         for player_id in player_ids:
-            rating = self.get_player_stat_value(player_id, 'rating', metric='mean')
+            # Use calculated rating from actual stats
+            rating = self.calculate_player_rating(player_id)
             if rating > 0:
                 ratings.append(rating)
 
@@ -269,9 +321,8 @@ class PlayerStatsManager:
         Returns:
             Dictionary of features (e.g., {home_player_rating_3: 7.2, ...})
         """
-        # Core stats to extract
+        # Core stats to extract (excluding rating, which we'll calculate separately)
         stat_mapping = {
-            'rating': 'player_rating',
             'touches': 'player_touches',
             'duels_won': 'player_duels_won',
             'total_duels': 'player_total_duels',
@@ -300,10 +351,17 @@ class PlayerStatsManager:
             stat_names=list(stat_mapping.keys()),
             aggregation='sum'  # Sum for team totals
         )
+        
+        # Calculate average team rating from individual player ratings
+        avg_rating = self.get_team_average_rating(player_ids)
 
         # Build feature dictionary for all time windows (3, 5, 10)
         features = {}
         for window in [3, 5, 10]:
+            # Add rating feature (same for all windows since it's current lineup)
+            features[f"{prefix}_player_rating_{window}"] = avg_rating
+            
+            # Add other stats
             for db_stat_name, feature_name in stat_mapping.items():
                 value = aggregated.get(db_stat_name, 0.0)
                 feature_key = f"{prefix}_{feature_name}_{window}"
