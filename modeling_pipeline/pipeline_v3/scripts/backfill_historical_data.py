@@ -69,6 +69,9 @@ class HistoricalDataBackfill:
         """
         Download all fixtures between dates.
         
+        SportMonks API has a ~90 day limit for /fixtures/between endpoint.
+        This method automatically chunks large date ranges.
+        
         Args:
             start_date: Start date (YYYY-MM-DD)
             end_date: End date (YYYY-MM-DD)
@@ -83,6 +86,67 @@ class HistoricalDataBackfill:
         if league_ids is None:
             league_ids = list(SportMonksConfig.LEAGUES.values())
         
+        # Calculate date range and chunk if needed
+        start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+        end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+        total_days = (end_dt - start_dt).days
+        
+        # SportMonks API limit is ~90 days, use 85 to be safe
+        CHUNK_DAYS = 85
+        
+        if total_days > CHUNK_DAYS:
+            logger.info(f"Date range is {total_days} days - chunking into {CHUNK_DAYS}-day periods")
+            
+            all_fixtures = []
+            current_start = start_dt
+            
+            while current_start < end_dt:
+                current_end = min(current_start + timedelta(days=CHUNK_DAYS), end_dt)
+                
+                chunk_start_str = current_start.strftime('%Y-%m-%d')
+                chunk_end_str = current_end.strftime('%Y-%m-%d')
+                
+                logger.info(f"Downloading chunk: {chunk_start_str} to {chunk_end_str}")
+                
+                # Download this chunk
+                chunk_fixtures = self._download_fixtures_chunk(
+                    chunk_start_str,
+                    chunk_end_str,
+                    league_ids
+                )
+                all_fixtures.extend(chunk_fixtures)
+                
+                current_start = current_end + timedelta(days=1)
+            
+            logger.info(f"Total fixtures downloaded across all chunks: {len(all_fixtures)}")
+            
+            # Save combined file
+            combined_file = self.output_dir / 'fixtures' / f'all_fixtures_{start_date}_{end_date}.json'
+            with open(combined_file, 'w') as f:
+                json.dump(all_fixtures, f, indent=2)
+            
+            return all_fixtures
+        else:
+            # Single chunk - use existing logic
+            return self._download_fixtures_chunk(start_date, end_date, league_ids)
+    
+    def _download_fixtures_chunk(
+        self,
+        start_date: str,
+        end_date: str,
+        league_ids: List[int]
+    ) -> List[Dict]:
+        """
+        Download fixtures for a single date chunk (internal method).
+        
+        Args:
+            start_date: Start date (YYYY-MM-DD)
+            end_date: End date (YYYY-MM-DD)
+            league_ids: List of league IDs
+        
+        Returns:
+            List of fixtures
+        """
         all_fixtures = []
         
         # Download fixtures for each league
@@ -111,7 +175,7 @@ class HistoricalDataBackfill:
         
         logger.info(f"Total fixtures downloaded: {len(all_fixtures)}")
         
-        # Save combined file
+        # Save combined file for this chunk
         combined_file = self.output_dir / 'fixtures' / f'all_fixtures_{start_date}_{end_date}.json'
         with open(combined_file, 'w') as f:
             json.dump(all_fixtures, f, indent=2)
