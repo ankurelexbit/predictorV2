@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.features.feature_pipeline import FeaturePipeline
 from src.features.elo_calculator import EloCalculator
+from src.utils.database import SupabaseDB
 
 
 # Set up logging
@@ -41,15 +42,24 @@ logger = logging.getLogger(__name__)
 class FeatureGenerator:
     """Generate training features from historical data."""
     
-    def __init__(self, data_dir: str):
+    def __init__(self, data_dir: str, use_database: bool = True):
         """
         Initialize feature generator.
         
         Args:
             data_dir: Directory containing downloaded historical data
+            use_database: Save features to Supabase (default: True)
         """
         self.data_dir = Path(data_dir)
         self.feature_pipeline = FeaturePipeline()
+        self.use_database = use_database
+        
+        # Initialize database if needed
+        if self.use_database:
+            self.db = SupabaseDB()
+            logger.info("Database connection initialized")
+        else:
+            self.db = None
         
         # Storage for processed data
         self.fixtures = []
@@ -332,12 +342,12 @@ class FeatureGenerator:
         
         return h2h
     
-    def generate_features(self) -> pd.DataFrame:
+    def generate_features_list(self) -> List[Dict]:
         """
         Generate features for all fixtures.
         
         Returns:
-            DataFrame with features
+            List of feature dictionaries
         """
         logger.info("Generating features for all fixtures...")
         
@@ -405,7 +415,20 @@ class FeatureGenerator:
                 else:
                     features['target'] = 'D'
                 
-                all_features.append(features)
+                # Prepare for database storage
+                # Separate metadata from features
+                feature_record = {
+                    'fixture_id': fixture_id,
+                    'match_date': match_date.isoformat(),
+                    'features': {k: v for k, v in features.items() 
+                                if k not in ['fixture_id', 'match_date', 'home_team_id', 'away_team_id', 
+                                           'home_goals', 'away_goals', 'target']},
+                    'target': features['target'],
+                    'home_goals': home_goals,
+                    'away_goals': away_goals,
+                }
+                
+                all_features.append(feature_record)
                 
             except Exception as e:
                 logger.error(f"Error generating features for fixture {fixture_id}: {e}")
@@ -413,23 +436,20 @@ class FeatureGenerator:
         
         logger.info(f"Generated features for {len(all_features)} fixtures")
         
-        # Convert to DataFrame
-        df = pd.DataFrame(all_features)
-        
-        return df
+        return all_features
     
-    def run(self, output_file: str):
+    def run(self, output_file: Optional[str] = None):
         """
         Run complete feature generation pipeline.
         
         Args:
-            output_file: Output CSV file path
+            output_file: Optional CSV file path for export
         """
         logger.info("=" * 80)
         logger.info("STARTING FEATURE GENERATION")
         logger.info("=" * 80)
         
-        # Load data
+        # Load data from JSON
         self.load_fixtures()
         self.load_statistics()
         
@@ -440,20 +460,36 @@ class FeatureGenerator:
         self.calculate_elo_ratings()
         
         # Generate features
-        df = self.generate_features()
+        all_features = self.generate_features_list()
         
-        # Save to CSV
-        df.to_csv(output_file, index=False)
-        logger.info(f"Saved {len(df)} feature vectors to {output_file}")
+        # Save to database
+        if self.use_database and all_features:
+            logger.info(f"\nSaving {len(all_features)} feature vectors to Supabase...")
+            try:
+                self.db.insert_features_batch(all_features)
+                logger.info("✅ Features saved to Supabase successfully")
+            except Exception as e:
+                logger.error(f"Error saving to database: {e}")
+                raise
+        
+        # Optionally export to CSV
+        if output_file:
+            df = pd.DataFrame(all_features)
+            df.to_csv(output_file, index=False)
+            logger.info(f"✅ Exported {len(df)} feature vectors to {output_file}")
         
         # Summary statistics
         logger.info("\n" + "=" * 80)
         logger.info("FEATURE GENERATION COMPLETE")
         logger.info("=" * 80)
         logger.info(f"Total fixtures processed: {len(self.fixtures)}")
-        logger.info(f"Feature vectors generated: {len(df)}")
-        logger.info(f"Features per vector: {len(df.columns)}")
-        logger.info(f"Output file: {output_file}")
+        logger.info(f"Feature vectors generated: {len(all_features)}")
+        if all_features:
+            logger.info(f"Features per vector: {len(all_features[0])}")
+        if self.use_database:
+            logger.info(f"Storage: Supabase database ✅")
+        if output_file:
+            logger.info(f"CSV export: {output_file} ✅")
         logger.info("=" * 80)
 
 
@@ -461,12 +497,14 @@ def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description='Generate training features from historical data')
     parser.add_argument('--data-dir', default='data/historical', help='Directory with downloaded data')
-    parser.add_argument('--output', default='training_features.csv', help='Output CSV file')
+    parser.add_argument('--output', default=None, help='Optional: Export to CSV file')
+    parser.add_argument('--no-database', action='store_true', help='Skip database storage (CSV only)')
     
     args = parser.parse_args()
     
     # Run feature generation
-    generator = FeatureGenerator(data_dir=args.data_dir)
+    use_db = not args.no_database
+    generator = FeatureGenerator(data_dir=args.data_dir, use_database=use_db)
     
     try:
         generator.run(output_file=args.output)

@@ -44,10 +44,28 @@ This will download:
 psql -U your_user -d your_database -f scripts/create_database.sql
 ```
 
-### 4. Generate Training Features
+### 3. Generate Training Features
 
 ```bash
-# Coming soon: scripts/generate_training_features.py
+# Process downloaded data and create feature vectors
+python scripts/generate_training_features.py \
+    --data-dir data/historical \
+    --output training_features.csv
+```
+
+This will:
+- ✅ Load all historical data
+- ✅ Calculate Elo ratings chronologically
+- ✅ Generate 100-140 features per match
+- ✅ Create training-ready CSV
+
+**Time:** ~8-10 minutes per season  
+**Output:** `training_features.csv`
+
+### 4. Train Model (Coming Soon)
+
+```bash
+# Coming soon: scripts/train_model.py
 ```
 
 ---
