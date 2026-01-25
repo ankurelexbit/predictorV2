@@ -187,14 +187,40 @@ class SportMonksClient:
         Returns:
             List of fixtures
         """
-        params = {
-            'filters': f'fixtureStartingAt:{start_date},{end_date}'
-        }
-        if league_id:
-            params['filters'] += f';leagueId:{league_id}'
+        # Use the /between endpoint which works in API v3
+        endpoint = f'/fixtures/between/{start_date}/{end_date}'
         
-        response = self._make_request('/fixtures', params)
-        return response.get('data', [])
+        # Handle pagination - API returns max 25 per page
+        all_fixtures = []
+        page = 1
+        
+        while True:
+            params = {'page': page}
+            response = self._make_request(endpoint, params)
+            
+            data = response.get('data', [])
+            if not data:
+                break
+            
+            all_fixtures.extend(data)
+            
+            # Check if there are more pages
+            pagination = response.get('pagination', {})
+            if not pagination.get('has_more', False):
+                break
+            
+            page += 1
+            
+            # Safety limit to avoid infinite loops
+            if page > 1000:
+                logger.warning(f"Reached page limit of 1000")
+                break
+        
+        # Filter by league if specified (do it client-side since API filters don't work)
+        if league_id:
+            all_fixtures = [f for f in all_fixtures if f.get('league_id') == league_id]
+        
+        return all_fixtures
     
     def get_fixture_by_id(self, fixture_id: int, includes: Optional[List[str]] = None) -> Dict:
         """

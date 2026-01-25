@@ -389,6 +389,7 @@ class FeatureGenerator:
                 features['match_date'] = match_date.isoformat()
                 features['home_team_id'] = home_team_id
                 features['away_team_id'] = away_team_id
+                features['league_id'] = fixture.get('league_id')  # Add league as feature
                 
                 # Add target
                 scores = fixture.get('scores', [])
