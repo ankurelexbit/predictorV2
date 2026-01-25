@@ -2,7 +2,7 @@
 ## Complete Reference for All 150-180 Features
 
 **Last Updated:** January 25, 2026  
-**Total Features:** 150-180
+**Total Features:** 165-190 (includes 25 player features)
 
 ---
 
@@ -121,9 +121,65 @@ xG = (shots_inside_box × 0.12 + shots_outside_box × 0.03 +
 
 ---
 
-## PILLAR 3: HIDDEN EDGES (40 features)
+## PILLAR 3: HIDDEN EDGES (55-65 features)
 
-### 3.1 Momentum & Trajectory (12 features)
+### 3.1 Player Quality & Availability (25 features)
+
+#### 3.1.1 Lineup Quality (8 features)
+
+| Feature | Source | Calculation | Type | Meaning | Importance |
+|---------|--------|-------------|------|---------|------------|
+| `home_lineup_avg_rating_5` | API: `/lineups` + `/players/statistics` | Avg player rating last 5 | Float | Overall team quality | ⭐⭐⭐⭐⭐ |
+| `away_lineup_avg_rating_5` | API: `/lineups` + `/players/statistics` | Avg player rating last 5 | Float | Overall team quality | ⭐⭐⭐⭐⭐ |
+| `home_starting_11_avg_rating` | Calculated | Avg rating of starting 11 | Float | Lineup strength | ⭐⭐⭐⭐⭐ |
+| `away_starting_11_avg_rating` | Calculated | Avg rating of starting 11 | Float | Lineup strength | ⭐⭐⭐⭐⭐ |
+| `home_top_3_players_rating` | Calculated | Avg of 3 best players | Float | Star player quality | ⭐⭐⭐⭐ |
+| `away_top_3_players_rating` | Calculated | Avg of 3 best players | Float | Star player quality | ⭐⭐⭐⭐ |
+| `home_bench_strength` | Calculated | Avg bench player rating | Float | Squad depth | ⭐⭐⭐ |
+| `away_bench_strength` | Calculated | Avg bench player rating | Float | Squad depth | ⭐⭐⭐ |
+
+#### 3.1.2 Key Player Availability (8 features)
+
+| Feature | Source | Calculation | Type | Meaning | Importance |
+|---------|--------|-------------|------|---------|------------|
+| `home_key_players_available` | API: `/sidelined` | Count of top 5 players available | Int | Star availability (0-5) | ⭐⭐⭐⭐⭐ |
+| `away_key_players_available` | API: `/sidelined` | Count of top 5 players available | Int | Star availability (0-5) | ⭐⭐⭐⭐⭐ |
+| `home_top_scorer_available` | API: `/sidelined` | Binary: top scorer playing | Bool | Main striker available | ⭐⭐⭐⭐⭐ |
+| `away_top_scorer_available` | API: `/sidelined` | Binary: top scorer playing | Bool | Main striker available | ⭐⭐⭐⭐⭐ |
+| `home_top_assister_available` | API: `/sidelined` | Binary: top assister playing | Bool | Playmaker available | ⭐⭐⭐⭐ |
+| `away_top_assister_available` | API: `/sidelined` | Binary: top assister playing | Bool | Playmaker available | ⭐⭐⭐⭐ |
+| `home_gk_quality` | Calculated | Goalkeeper rating | Float | GK strength | ⭐⭐⭐⭐ |
+| `away_gk_quality` | Calculated | Goalkeeper rating | Float | GK strength | ⭐⭐⭐⭐ |
+
+#### 3.1.3 Injuries & Suspensions (5 features)
+
+| Feature | Source | Calculation | Type | Meaning | Importance |
+|---------|--------|-------------|------|---------|------------|
+| `home_players_injured` | API: `/sidelined` | Count injured players | Int | Injury crisis indicator | ⭐⭐⭐⭐ |
+| `away_players_injured` | API: `/sidelined` | Count injured players | Int | Injury crisis indicator | ⭐⭐⭐⭐ |
+| `home_players_suspended` | API: `/sidelined` | Count suspended players | Int | Suspension impact | ⭐⭐⭐⭐ |
+| `away_players_suspended` | API: `/sidelined` | Count suspended players | Int | Suspension impact | ⭐⭐⭐⭐ |
+| `home_key_players_missing` | Calculated | Top 5 players injured/suspended | Int | Critical absences (0-5) | ⭐⭐⭐⭐⭐ |
+
+#### 3.1.4 Player Form (4 features)
+
+| Feature | Source | Calculation | Type | Meaning | Importance |
+|---------|--------|-------------|------|---------|------------|
+| `home_players_in_form` | Calculated | % players with rating > 7.0 | Float | Team confidence | ⭐⭐⭐⭐ |
+| `away_players_in_form` | Calculated | % players with rating > 7.0 | Float | Team confidence | ⭐⭐⭐⭐ |
+| `home_avg_player_form_3` | Calculated | Avg player rating last 3 | Float | Recent player form | ⭐⭐⭐⭐ |
+| `away_avg_player_form_3` | Calculated | Avg player rating last 3 | Float | Recent player form | ⭐⭐⭐⭐ |
+
+**Key Player Impact:**
+- Missing top striker: -0.3 xG, -10% win probability
+- Missing playmaker: -0.2 xG, -8% win probability
+- Missing key defender: +0.3 xGA, -7% win probability
+
+**Data Availability:**
+- Lineups available: 60-70% of matches (1-2h before kickoff)
+- When unavailable: Use team season averages as fallback
+
+### 3.2 Momentum & Trajectory (12 features)
 
 | Feature | Source | Calculation | Type | Meaning | Importance |
 |---------|--------|-------------|------|---------|------------|
