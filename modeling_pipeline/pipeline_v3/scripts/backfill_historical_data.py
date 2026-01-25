@@ -167,9 +167,6 @@ class HistoricalDataBackfill:
                 with open(output_file, 'w') as f:
                     json.dump(fixtures, f, indent=2)
                 
-                # Small delay to respect rate limits
-                time.sleep(0.5)
-                
             except Exception as e:
                 logger.error(f"Error downloading fixtures for league {league_id}: {e}")
                 continue
@@ -233,17 +230,19 @@ class HistoricalDataBackfill:
         self, 
         fixtures: List[Dict],
         include_lineups: bool = True,
-        max_workers: int = 10
+        max_workers: int = 6
     ) -> Dict[int, Dict]:
         """
         Download detailed fixture data (statistics + lineups) in parallel.
         
         Uses ThreadPoolExecutor for concurrent downloads - 10-20x faster!
         
+        Default workers=6 optimized for 3000 req/hr rate limit (50 req/min).
+        
         Args:
             fixtures: List of fixtures
             include_lineups: Include lineups in the request
-            max_workers: Number of parallel workers (default: 10)
+            max_workers: Number of parallel workers (default: 6 for rate limits)
         
         Returns:
             Dictionary mapping fixture_id to complete fixture data
@@ -319,9 +318,6 @@ class HistoricalDataBackfill:
                 with open(output_file, 'w') as f:
                     json.dump(sidelined, f, indent=2)
                 
-                # Small delay
-                time.sleep(0.3)
-                
             except Exception as e:
                 logger.error(f"Error downloading sidelined for team {team_id}: {e}")
                 continue
@@ -357,7 +353,7 @@ class HistoricalDataBackfill:
         end_date: str,
         include_lineups: bool = True,
         include_sidelined: bool = True,
-        max_workers: int = 10
+        max_workers: int = 6
     ):
         """
         Run complete backfill process.
@@ -367,7 +363,7 @@ class HistoricalDataBackfill:
             end_date: End date (YYYY-MM-DD)
             include_lineups: Download lineups
             include_sidelined: Download sidelined players
-            max_workers: Number of parallel workers for downloads
+            max_workers: Number of parallel workers (default: 6 for 3000 req/hr limit)
         """
         logger.info("=" * 80)
         logger.info("STARTING FULL HISTORICAL DATA BACKFILL")
@@ -436,7 +432,7 @@ def main():
     parser.add_argument('--output-dir', default='data/historical', help='Output directory')
     parser.add_argument('--skip-lineups', action='store_true', help='Skip downloading lineups')
     parser.add_argument('--skip-sidelined', action='store_true', help='Skip downloading sidelined players')
-    parser.add_argument('--workers', type=int, default=10, help='Number of parallel workers (default: 10, max: 20)')
+    parser.add_argument('--workers', type=int, default=6, help='Number of parallel workers (default: 6 for 3000 req/hr, max: 20)')
     
     args = parser.parse_args()
     
