@@ -44,25 +44,45 @@ This will download:
 psql -U your_user -d your_database -f scripts/create_database.sql
 ```
 
-### 3. Generate Training Features
+### 3. Set Up Supabase Database
 
 ```bash
-# Process downloaded data and create feature vectors
+# 1. Run schema in Supabase SQL Editor
+# Copy contents of scripts/create_database.sql and run in Supabase
+
+# 2. Add credentials to .env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-anon-key
+```
+
+See [`docs/SUPABASE_SETUP.md`](docs/SUPABASE_SETUP.md) for detailed setup.
+
+### 4. Generate Features (Saves to Supabase)
+
+```bash
+# Generate features and save to Supabase
+python scripts/generate_training_features.py \
+    --data-dir data/historical
+```
+
+This will:
+- ✅ Load historical data from JSON files
+- ✅ Calculate Elo ratings chronologically
+- ✅ Generate 100-140 features per match
+- ✅ **Save to Supabase database** (not CSV)
+
+**Time:** ~8-10 minutes per season  
+**Storage:** Supabase `training_features` table
+
+**Optional CSV export:**
+```bash
+# Also export to CSV for analysis
 python scripts/generate_training_features.py \
     --data-dir data/historical \
     --output training_features.csv
 ```
 
-This will:
-- ✅ Load all historical data
-- ✅ Calculate Elo ratings chronologically
-- ✅ Generate 100-140 features per match
-- ✅ Create training-ready CSV
-
-**Time:** ~8-10 minutes per season  
-**Output:** `training_features.csv`
-
-### 4. Train Model (Coming Soon)
+### 5. Train Model (Coming Soon)
 
 ```bash
 # Coming soon: scripts/train_model.py
