@@ -250,8 +250,9 @@ class SportMonksClient:
         Returns:
             List of statistics
         """
-        response = self._make_request(f'/statistics/fixtures/{fixture_id}')
-        return response.get('data', [])
+        # Use include parameter instead of separate endpoint
+        fixture = self.get_fixture_by_id(fixture_id, includes=['statistics'])
+        return fixture.get('statistics', [])
     
     def get_fixture_lineups(self, fixture_id: int) -> List[Dict]:
         """
@@ -263,8 +264,9 @@ class SportMonksClient:
         Returns:
             List of lineup data
         """
-        response = self._make_request(f'/lineups/fixtures/{fixture_id}')
-        return response.get('data', [])
+        # Use include parameter instead of separate endpoint
+        fixture = self.get_fixture_by_id(fixture_id, includes=['lineups'])
+        return fixture.get('lineups', [])
     
     def get_team_sidelined(self, team_id: int) -> List[Dict]:
         """
@@ -276,8 +278,11 @@ class SportMonksClient:
         Returns:
             List of sidelined players
         """
-        response = self._make_request(f'/teams/{team_id}/sidelined')
-        return response.get('data', [])
+        # Use include parameter instead of separate endpoint
+        params = {'include': 'sidelined'}
+        response = self._make_request(f'/teams/{team_id}', params)
+        team_data = response.get('data', {})
+        return team_data.get('sidelined', [])
     
     def get_head_to_head(self, team1_id: int, team2_id: int) -> List[Dict]:
         """
