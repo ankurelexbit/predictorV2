@@ -75,7 +75,7 @@ elo_features = {
 }
 
 # Elo calculation (proven formula)
-def update_elo(team_elo, opponent_elo, result, k_factor=32, home_advantage=50):
+def update_elo(team_elo, opponent_elo, result, k_factor=32, home_advantage=35):
     """
     Standard Elo update with home advantage.
     
@@ -84,7 +84,7 @@ def update_elo(team_elo, opponent_elo, result, k_factor=32, home_advantage=50):
         opponent_elo: Opponent's Elo
         result: 1 (win), 0.5 (draw), 0 (loss)
         k_factor: Update speed (32 standard)
-        home_advantage: Home team bonus (50 standard)
+        home_advantage: Home team bonus (35 calibrated for modern football)
     """
     expected = 1 / (1 + 10 ** ((opponent_elo - team_elo - home_advantage) / 400))
     new_elo = team_elo + k_factor * (result - expected)

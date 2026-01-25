@@ -27,7 +27,7 @@ Each feature includes:
 | `home_elo` | Calculated | Historical Elo tracking | Float | Current team strength rating | ⭐⭐⭐⭐⭐ |
 | `away_elo` | Calculated | Historical Elo tracking | Float | Current team strength rating | ⭐⭐⭐⭐⭐ |
 | `elo_diff` | Calculated | `home_elo - away_elo` | Float | Strength differential | ⭐⭐⭐⭐⭐ |
-| `elo_diff_with_ha` | Calculated | `elo_diff + 50` | Float | Strength diff + home advantage | ⭐⭐⭐⭐⭐ |
+| `elo_diff_with_ha` | Calculated | `elo_diff + 35` | Float | Strength diff + home advantage | ⭐⭐⭐⭐⭐ |
 | `home_elo_change_5` | Calculated | Elo change last 5 matches | Float | Recent Elo momentum | ⭐⭐⭐⭐ |
 | `away_elo_change_5` | Calculated | Elo change last 5 matches | Float | Recent Elo momentum | ⭐⭐⭐⭐ |
 | `home_elo_change_10` | Calculated | Elo change last 10 matches | Float | Extended Elo trend | ⭐⭐⭐ |
@@ -37,8 +37,9 @@ Each feature includes:
 
 **Elo Calculation:**
 ```python
-expected = 1 / (1 + 10**((opp_elo - team_elo - 50) / 400))
+expected = 1 / (1 + 10**((opp_elo - team_elo - 35) / 400))
 new_elo = old_elo + 32 * (result - expected)
+# Home advantage: 35 points (calibrated for modern football)
 ```
 
 ### 1.2 League Position & Points (12 features)
