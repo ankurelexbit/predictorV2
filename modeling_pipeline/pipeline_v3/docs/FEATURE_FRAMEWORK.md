@@ -382,6 +382,12 @@ player_features = {
     'home_players_unavailable': 'Injured + suspended count',
     'away_players_unavailable': 'Squad depth impact',
 }
+
+# Historical Data Availability: ✅ FULLY AVAILABLE
+# - Lineups: Per fixture from 2005+ (GET /lineups/fixtures/{id})
+# - Injuries/Suspensions: With dates from 2000+ (GET /teams/{id}/sidelined)
+# - Player Ratings: Match-by-match from 2000+ (GET /fixtures/{id}?include=participants.statistics)
+# See HISTORICAL_DATA_RESEARCH.md for complete details
 ```
 
 #### 3.4 Situational Context (8 features) ⭐⭐⭐
