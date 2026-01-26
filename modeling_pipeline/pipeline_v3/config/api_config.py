@@ -24,7 +24,7 @@ class SportMonksConfig:
     BACKOFF_FACTOR = 2  # exponential backoff
     
     # Timeout
-    REQUEST_TIMEOUT = 30  # seconds
+    REQUEST_TIMEOUT = 120  # seconds (increased for requests with many includes)
     
     # Caching
     CACHE_ENABLED = True
