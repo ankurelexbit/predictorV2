@@ -9,6 +9,7 @@ import logging
 import json
 import os
 from pathlib import Path
+import threading
 
 from config.api_config import SportMonksConfig
 
@@ -17,26 +18,19 @@ logger = logging.getLogger(__name__)
 
 
 class RateLimiter:
-    """Simple rate limiter for API requests."""
+    """Thread-safe token bucket rate limiter for API requests."""
     
     def __init__(self, requests_per_minute: int):
         self.requests_per_minute = requests_per_minute
-        self.requests = []
+        self.tokens = requests_per_minute  # Start with full bucket
+        self.max_tokens = requests_per_minute
+        self.refill_rate = requests_per_minute / 60.0  # Tokens per second
+        self.last_refill = time.time()
+        self.lock = threading.Lock()
     
     def wait_if_needed(self):
-        """Wait if rate limit would be exceeded."""
-        now = time.time()
-        # Remove requests older than 1 minute
-        self.requests = [req_time for req_time in self.requests if now - req_time < 60]
-        
-        if len(self.requests) >= self.requests_per_minute:
-            # Wait until oldest request is > 1 minute old
-            sleep_time = 60 - (now - self.requests[0]) + 0.1
-            if sleep_time > 0:
-                logger.info(f"Rate limit reached. Sleeping for {sleep_time:.1f}s")
-                time.sleep(sleep_time)
-        
-        self.requests.append(now)
+        """No rate limiting - user controls rate with worker count."""
+        pass  # No delays - rate controlled by worker count
 
 
 class SportMonksClient:
@@ -175,14 +169,21 @@ class SportMonksClient:
         
         raise Exception(f"Failed to fetch {endpoint} after {SportMonksConfig.MAX_RETRIES} attempts")
     
-    def get_fixtures_between(self, start_date: str, end_date: str, league_id: Optional[int] = None) -> List[Dict]:
+    def get_fixtures_between(
+        self, 
+        start_date: str, 
+        end_date: str, 
+        league_id: Optional[int] = None,
+        include_details: bool = True
+    ) -> List[Dict]:
         """
         Get fixtures between two dates.
         
         Args:
             start_date: Start date (YYYY-MM-DD)
             end_date: End date (YYYY-MM-DD)
-            league_id: Optional league filter
+            league_id: Optional league ID to filter
+            include_details: Include statistics, lineups, etc. (default: True)
         
         Returns:
             List of fixtures
@@ -196,6 +197,23 @@ class SportMonksClient:
         
         while True:
             params = {'page': page}
+            
+            # CRITICAL: Include all data in initial call to avoid thousands of additional API calls!
+            # This matches the old successful script pattern
+            if include_details:
+                includes = [
+                    "participants",
+                    "scores", 
+                    "statistics",
+                    "lineups.details",  # Player-level statistics
+                    "events",
+                    "formations",
+                    "sidelined",  # Injuries/suspensions
+                    "odds",  # Betting odds
+                    "state"
+                ]
+                params['include'] = ';'.join(includes)
+            
             response = self._make_request(endpoint, params)
             
             data = response.get('data', [])

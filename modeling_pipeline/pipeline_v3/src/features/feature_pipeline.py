@@ -13,6 +13,7 @@ from src.features.form_calculator import FormCalculator
 from src.features.h2h_calculator import H2HCalculator
 from src.features.shot_analyzer import ShotAnalyzer
 from src.features.defensive_metrics import DefensiveMetrics
+from src.features.standings_calculator import StandingsCalculator
 
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ class FeaturePipeline:
         self.h2h_calc = H2HCalculator()
         self.shot_analyzer = ShotAnalyzer()
         self.defensive_calc = DefensiveMetrics()
+        self.standings_calc = StandingsCalculator()
         
         logger.info("Feature pipeline initialized")
     

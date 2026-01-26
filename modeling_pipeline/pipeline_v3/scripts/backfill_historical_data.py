@@ -382,20 +382,40 @@ class HistoricalDataBackfill:
             logger.error("No fixtures downloaded. Aborting.")
             return
         
-        # Step 2: Download fixture details (statistics + lineups in ONE call!)
+        # Step 2: Extract statistics and lineups from fixtures (already included!)
         logger.info("\n" + "=" * 80)
-        logger.info("STEP 2: Downloading Fixture Details (Statistics + Lineups)")
+        logger.info("STEP 2: Extracting Statistics and Lineups from Fixtures")
         logger.info("=" * 80)
-        logger.info("Using OPTIMIZED single API call per fixture! 🚀")
-        fixture_details = self.backfill_fixture_details(
-            fixtures, 
-            include_lineups=include_lineups,
-            max_workers=max_workers
-        )
+        logger.info("Data already included in fixtures - NO additional API calls needed! 🚀")
         
-        # Count what we got
-        stats_count = sum(1 for fid, data in fixture_details.items() if data.get('statistics'))
-        lineups_count = sum(1 for fid, data in fixture_details.items() if data.get('lineups')) if include_lineups else 0
+        stats_count = 0
+        lineups_count = 0
+        
+        for fixture in tqdm(fixtures, desc="Extracting Data"):
+            fixture_id = fixture.get('id')
+            if not fixture_id:
+                continue
+            
+            # Extract and save statistics
+            stats = fixture.get('statistics', [])
+            if stats:
+                stats_count += 1
+                output_file = self.output_dir / 'statistics' / f'fixture_{fixture_id}.json'
+                with open(output_file, 'w') as f:
+                    json.dump(stats, f, indent=2)
+            
+            # Extract and save lineups
+            if include_lineups:
+                lineups = fixture.get('lineups', [])
+                if lineups:
+                    lineups_count += 1
+                    output_file = self.output_dir / 'lineups' / f'fixture_{fixture_id}.json'
+                    with open(output_file, 'w') as f:
+                        json.dump(lineups, f, indent=2)
+        
+        logger.info(f"Extracted statistics for {stats_count} fixtures")
+        if include_lineups:
+            logger.info(f"Extracted lineups for {lineups_count} fixtures")
         
         # Step 3: Download sidelined players (optional)
         if include_sidelined:

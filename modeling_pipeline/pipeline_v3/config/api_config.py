@@ -14,9 +14,9 @@ class SportMonksConfig:
     API_KEY = os.getenv('SPORTMONKS_API_KEY')
     BASE_URL = os.getenv('SPORTMONKS_BASE_URL', 'https://api.sportmonks.com/v3/football')
     
-    # Rate Limiting
-    REQUESTS_PER_MINUTE = 3000  # Adjust based on your plan
-    REQUESTS_PER_HOUR = 10000
+    # Rate Limiting (3000 requests per hour = 50 per minute)
+    REQUESTS_PER_MINUTE = 50  # 3000 / 60
+    REQUESTS_PER_HOUR = 3000
     
     # Retry Configuration
     MAX_RETRIES = 3
