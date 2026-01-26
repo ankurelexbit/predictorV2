@@ -27,7 +27,7 @@ class SportMonksConfig:
     REQUEST_TIMEOUT = 120  # seconds (increased for requests with many includes)
     
     # Caching
-    CACHE_ENABLED = True
+    CACHE_ENABLED = False  # Temporarily disabled - 159GB cache causing slow lookups
     CACHE_DIR = 'data/cache'
     CACHE_EXPIRY_DAYS = 30  # Historical data doesn't change
     
