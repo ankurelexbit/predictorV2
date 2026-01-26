@@ -39,7 +39,7 @@ PLAYER_DB_DIR = PROCESSED_DIR / "player_database"
 PLAYER_DB_DIR.mkdir(parents=True, exist_ok=True)
 
 # API Configuration
-API_KEY = "LmEYRdsf8CSmiblNVTn6JfV0y0s8tc4aQsEkJ6JuoBhOWa3Hd1FEanGcrijo"
+API_KEY = "DQQStChRaPnjIryuZH2SxqJI5ufoA57wWsmFIuPCH2rvlBtm0G7Ch3mJoyE4"
 BASE_URL = "https://api.sportmonks.com/v3/football"
 
 # Logging

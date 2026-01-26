@@ -20,7 +20,7 @@ from utils import setup_logger
 logger = setup_logger("update_results")
 
 # SportMonks API configuration
-SPORTMONKS_API_KEY = os.getenv("SPORTMONKS_API_KEY", "LmEYRdsf8CSmiblNVTn6JfV0y0s8tc4aQsEkJ6JuoBhOWa3Hd1FEanGcrijo")
+SPORTMONKS_API_KEY = os.getenv("SPORTMONKS_API_KEY", "DQQStChRaPnjIryuZH2SxqJI5ufoA57wWsmFIuPCH2rvlBtm0G7Ch3mJoyE4")
 BASE_URL = "https://api.sportmonks.com/v3/football"
 
 def get_fixture_result(fixture_id: int) -> Optional[Dict]:

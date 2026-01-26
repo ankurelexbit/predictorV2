@@ -23,7 +23,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration
-SPORTMONKS_API_KEY = os.getenv("SPORTMONKS_API_KEY", "LmEYRdsf8CSmiblNVTn6JfV0y0s8tc4aQsEkJ6JuoBhOWa3Hd1FEanGcrijo")
+SPORTMONKS_API_KEY = os.getenv("SPORTMONKS_API_KEY", "DQQStChRaPnjIryuZH2SxqJI5ufoA57wWsmFIuPCH2rvlBtm0G7Ch3mJoyE4")
 BASE_URL = "https://api.sportmonks.com/v3/football"
 SAMPLE_MINUTES = [0, 15, 30, 45, 60, 75, 90]  # Minutes to sample
 

@@ -29,8 +29,8 @@ class RateLimiter:
         self.lock = threading.Lock()
     
     def wait_if_needed(self):
-        """No rate limiting - user controls rate with worker count."""
-        pass  # No delays - rate controlled by worker count
+        """Minimal delay to prevent connection resets."""
+        time.sleep(0.2)  # Small delay to avoid being blocked by API
 
 
 class SportMonksClient:

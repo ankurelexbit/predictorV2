@@ -23,7 +23,7 @@ from typing import Dict, Optional
 logger = logging.getLogger(__name__)
 
 # SportMonks API configuration (same as predict_live.py)
-SPORTMONKS_API_KEY = "LmEYRdsf8CSmiblNVTn6JfV0y0s8tc4aQsEkJ6JuoBhOWa3Hd1FEanGcrijo"
+SPORTMONKS_API_KEY = "DQQStChRaPnjIryuZH2SxqJI5ufoA57wWsmFIuPCH2rvlBtm0G7Ch3mJoyE4"
 
 class OddsFetcher:
     """Fetch real-time betting odds from SportMonks API."""
