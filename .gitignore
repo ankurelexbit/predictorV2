@@ -51,3 +51,8 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+# Complete data directory exclusions (added 2026-01-27)
+modeling_pipeline/data/
+modeling_pipeline/data2/
+modeling_pipeline/models2/
+modeling_pipeline/pipeline_v3/data/
