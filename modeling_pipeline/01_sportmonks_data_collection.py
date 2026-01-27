@@ -62,9 +62,9 @@ TARGET_LEAGUES = {
     5: "Europa League",
 }
 
-# Rate limiting - Optimized for speed
-REQUESTS_PER_MINUTE = 180  # Sportmonks limit
-REQUEST_DELAY = 60 / REQUESTS_PER_MINUTE * 0.6  # Optimized: 60% of max delay for faster throughput
+# Rate limiting - Optimized for SportMonks API
+REQUESTS_PER_MINUTE = 50  # 3000 per hour = 50 per minute
+# No artificial delay - response time (~0.43s) naturally paces requests
 
 # Logging
 logging.basicConfig(
@@ -92,10 +92,7 @@ class SportmonksAPI:
         self.last_request_time = 0
 
     def _rate_limit(self):
-        """Ensure we don't exceed rate limits."""
-        elapsed = time.time() - self.last_request_time
-        if elapsed < REQUEST_DELAY:
-            time.sleep(REQUEST_DELAY - elapsed)
+        """Track request timing (no artificial delay - response time paces requests)."""
         self.last_request_time = time.time()
 
     def _request(self, endpoint: str, params: Dict = None) -> Dict:

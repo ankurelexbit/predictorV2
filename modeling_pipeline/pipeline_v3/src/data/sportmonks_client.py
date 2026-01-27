@@ -18,19 +18,25 @@ logger = logging.getLogger(__name__)
 
 
 class RateLimiter:
-    """Thread-safe token bucket rate limiter for API requests."""
+    """No-op rate limiter - let API handle rate limits naturally."""
     
     def __init__(self, requests_per_minute: int):
         self.requests_per_minute = requests_per_minute
-        self.tokens = requests_per_minute  # Start with full bucket
-        self.max_tokens = requests_per_minute
-        self.refill_rate = requests_per_minute / 60.0  # Tokens per second
-        self.last_refill = time.time()
-        self.lock = threading.Lock()
+        self.last_remaining = None
+        logger.info(f"RateLimiter disabled - API will handle rate limits naturally")
     
     def wait_if_needed(self):
-        """Minimal delay to prevent connection resets."""
-        time.sleep(0.2)  # Small delay to avoid being blocked by API
+        """No rate limiting - API returns 429 if limit exceeded."""
+        pass
+    
+    def update_from_headers(self, headers: dict):
+        """Track API rate limit headers for monitoring only."""
+        remaining = headers.get('X-RateLimit-Remaining')
+        if remaining:
+            self.last_remaining = int(remaining)
+            # Only log if critically low
+            if self.last_remaining < 10:
+                logger.warning(f"API rate limit very low: {self.last_remaining} remaining")
 
 
 class SportMonksClient:
@@ -137,6 +143,9 @@ class SportMonksClient:
                 )
                 response.raise_for_status()
                 
+                # Update rate limiter with API headers
+                self.rate_limiter.update_from_headers(response.headers)
+                
                 data = response.json()
                 
                 # Save to cache
@@ -198,6 +207,10 @@ class SportMonksClient:
         while True:
             params = {'page': page}
             
+            # Add league filter to API request (not client-side!)
+            if league_id:
+                params['filters'] = f'fixtureLeagues:{league_id}'
+            
             # CRITICAL: Include all data in initial call to avoid thousands of additional API calls!
             # This matches the old successful script pattern
             if include_details:
@@ -233,10 +246,6 @@ class SportMonksClient:
             if page > 1000:
                 logger.warning(f"Reached page limit of 1000")
                 break
-        
-        # Filter by league if specified (do it client-side since API filters don't work)
-        if league_id:
-            all_fixtures = [f for f in all_fixtures if f.get('league_id') == league_id]
         
         return all_fixtures
     
