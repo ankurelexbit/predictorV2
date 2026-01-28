@@ -20,69 +20,52 @@ cp .env.example .env
 ```
 
 ### 2. Download Historical Data
-
 ```bash
-# Download 2024-2025 season data
+# Download missing data (e.g., 2020-2025)
 python scripts/backfill_historical_data.py \
-    --start-date 2024-08-01 \
+    --start-date 2020-01-01 \
     --end-date 2025-05-31
 ```
+**Output:** `data/historical/` (JSON files)
 
-This will download:
-- ✅ All fixtures
-- ✅ Match statistics
-- ✅ Lineups
-- ✅ Injury/suspension data
-
-**Time:** ~3-5 minutes per season  
-**Output:** `data/historical/`
-
-### 3. Set Up Database (Optional)
+### 3. Process Data (CSV Pipeline) 🚀
+Convert raw JSON to optimized CSVs for 1000x faster processing:
 
 ```bash
-# If using PostgreSQL/Supabase
-psql -U your_user -d your_database -f scripts/create_database.sql
+# 1. Convert JSON to CSV
+python scripts/convert_to_csv.py
+
+# 2. Validate Data Integrity
+python scripts/validate_json_to_csv.py
 ```
+**Output:** `data/csv/` (fixtures.csv, statistics.csv, lineups.csv)
 
-### 3. Set Up Supabase Database
-
-```bash
-# 1. Run schema in Supabase SQL Editor
-# Copy contents of scripts/create_database.sql and run in Supabase
-
-# 2. Add credentials to .env
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your-anon-key
-```
-
-See [`docs/SUPABASE_SETUP.md`](docs/SUPABASE_SETUP.md) for detailed setup.
-
-### 4. Generate Features (Saves to Supabase)
+### 4. Generate Training Data
+Generate the complete 150-feature dataset using the comprehensive engine:
 
 ```bash
-# Generate features and save to Supabase
-python scripts/generate_training_features.py \
-    --data-dir data/historical
+python scripts/generate_complete_training_data.py \
+    --output data/csv/training_data_complete.csv
 ```
 
 This will:
-- ✅ Load historical data from JSON files
-- ✅ Calculate Elo ratings chronologically
-- ✅ Generate 100-140 features per match
-- ✅ **Save to Supabase database** (not CSV)
+- ✅ Load CSV data (instantly)
+- ✅ Calculate season-aware standings
+- ✅ Generate 150 advanced features per match (Fundamentals, Modern Analytics, Hidden Edges)
+- ✅ Save training dataset
 
-**Time:** ~8-10 minutes per season  
-**Storage:** Supabase `training_features` table
+**Time:** ~21 minutes for 18K fixtures  
+**Output:** `data/csv/training_data_complete.csv`
 
-**Optional CSV export:**
+### 5. Validate Features
+Perform comprehensive sanity checks on the generated features:
+
 ```bash
-# Also export to CSV for analysis
-python scripts/generate_training_features.py \
-    --data-dir data/historical \
-    --output training_features.csv
+python scripts/validate_features.py \
+    --input data/csv/training_data_complete.csv
 ```
 
-### 5. Train Model (Coming Soon)
+### 6. Train Model (Next Step)
 
 ```bash
 # Coming soon: scripts/train_model.py
@@ -103,14 +86,14 @@ pipeline_v3/
 │   ├── data/           # Data ingestion
 │   │   └── sportmonks_client.py  # API client
 │   │
-│   ├── features/       # Feature engineering
-│   │   ├── elo_calculator.py     # Elo ratings
-│   │   ├── derived_xg.py         # xG calculation
-│   │   ├── form_calculator.py    # Form metrics
-│   │   ├── h2h_calculator.py     # H2H analysis
-│   │   ├── shot_analyzer.py      # Shot patterns
-│   │   ├── defensive_metrics.py  # Defensive stats
-│   │   └── feature_pipeline.py   # Orchestrator
+│   ├── pipeline/       # Feature Generation Pipeline
+│   │   ├── data_loader.py          # Historical data loader
+│   │   ├── standings_calculator.py # Season-aware standings
+│   │   ├── elo_tracker.py          # Chronological Elo
+│   │   ├── pillar1_fundamentals.py # Fundamental features
+│   │   ├── pillar2_modern_analytics.py # xG & analytics
+│   │   ├── pillar3_hidden_edges.py # Advanced features
+│   │   └── feature_orchestrator.py # Orchestrator
 │   │
 │   ├── models/         # Model training (coming soon)
 │   ├── betting/        # Betting strategy (coming soon)
@@ -118,20 +101,17 @@ pipeline_v3/
 │
 ├── scripts/            # Executable scripts
 │   ├── backfill_historical_data.py  # Download data
-│   └── create_database.sql          # Database schema
+│   ├── convert_to_csv.py            # JSON to CSV
+│   ├── generate_complete_training_data.py # Main generator
+│   ├── validate_features.py         # Feature validation
+│   └── ...
 │
 ├── docs/               # Documentation
 │   ├── README.md
 │   ├── FEATURE_FRAMEWORK.md
 │   ├── FEATURE_DICTIONARY.md
-│   ├── DERIVED_XG.md
-│   ├── BACKFILL_GUIDE.md
+│   ├── FEATURE_VALIDATION_GUIDE.md
 │   └── ...
-│
-├── notebooks/          # Jupyter notebooks
-├── tests/              # Unit tests
-├── requirements.txt    # Dependencies
-└── .env.example        # Environment template
 ```
 
 ---
@@ -140,21 +120,23 @@ pipeline_v3/
 
 ### ✅ Complete
 - Configuration system
-- SportMonks API client (rate limiting, caching, retries)
-- Elo rating calculator
-- Derived xG calculator
-- Form calculator
-- H2H calculator
-- Shot analyzer
-- Defensive metrics calculator
-- Feature pipeline orchestrator
+- SportMonks API client & Historical data backfill
+- JSON to CSV conversion pipeline
+- **Complete Feature Generation Pipeline**:
+    - HistoricalDataLoader
+    - SeasonAwareStandingsCalculator
+    - EloTracker (Chronological)
+    - Pillar 1 Engine (Fundamentals)
+    - Pillar 2 Engine (Modern Analytics)
+    - Pillar 3 Engine (Hidden Edges)
+    - Feature Orchestrator
+- **Feature Validation Suite**:
+    - Comprehensive sanity checks
+    - Detailed reporting
 - Database schema
-- Historical data backfill script
 
 ### 🚧 In Progress
-- Training feature generation
-- Database integration
-- Model training pipeline
+- Model training pipeline (Baseline, Dixon-Coles, XGBoost, Stacking)
 
 ### 📋 Planned
 - Betting strategy module
@@ -164,9 +146,9 @@ pipeline_v3/
 
 ---
 
-## � Features Overview
+## 📊 Features Overview
 
-**Total Features:** 140-190
+**Total Features:** 150
 
 ### Pillar 1: Fundamentals (50 features)
 - Elo Ratings (10)
@@ -181,74 +163,60 @@ pipeline_v3/
 - Defensive Intensity (12)
 - Attack Patterns (8)
 
-### Pillar 3: Hidden Edges (40-80 features)
+### Pillar 3: Hidden Edges (40 features)
 - Momentum & Trajectory (12)
 - Fixture-Adjusted (10)
-- Player Quality (25)
+- Player Quality Proxies (10)
 - Situational Context (8)
 
 ---
 
-## � Configuration
+## ⚙️ Configuration
 
 ### API Settings (`config/api_config.py`)
-- API key and base URL
-- Rate limiting (3,000 req/min)
-- Retry logic
-- Caching settings
+- API key, rate limiting, retry logic
 
 ### Feature Settings (`config/feature_config.py`)
 - Elo parameters (K=32, HA=35)
-- xG coefficients
-- Rolling window sizes
-- Feature groups
+- xG coefficients (Inside Box=0.12, Big Chance=0.35, etc.)
+- Rolling window sizes (5, 10 matches)
 
 ### Database Settings (`config/database_config.py`)
-- Connection string
-- Table names
-- Batch sizes
+- Connection string, table names
 
 ---
 
-## � Documentation
+## 📚 Documentation
 
 - **[FEATURE_FRAMEWORK.md](docs/FEATURE_FRAMEWORK.md)** - Complete feature specifications
-- **[FEATURE_DICTIONARY.md](docs/FEATURE_DICTIONARY.md)** - Feature data sources
-- **[DERIVED_XG.md](docs/DERIVED_XG.md)** - xG calculation methodology
-- **[BACKFILL_GUIDE.md](docs/BACKFILL_GUIDE.md)** - Data download guide
-- **[HISTORICAL_DATA_RESEARCH.md](docs/HISTORICAL_DATA_RESEARCH.md)** - API research
-- **[API_DATA_MAPPING.md](docs/API_DATA_MAPPING.md)** - API endpoints
-
----
-
-## 🎓 Key Design Decisions
-
-1. **Complete Independence** - No external AI models or paid add-ons
-2. **Derived xG** - Calculate from base statistics (saves $1,800-3,600/year)
-3. **Home Advantage** - 35 points (calibrated for modern football)
-4. **Historical Data** - All 165-190 features available from API
-5. **Modular Architecture** - Easy to test, maintain, and extend
+- **[FEATURE_VALIDATION_GUIDE.md](docs/FEATURE_VALIDATION_GUIDE.md)** - Validation script usage
+- **src/pipeline/README.md** - Detailed pipeline documentation
+- **validation_report.md** - Data quality report
 
 ---
 
 ## 🚀 Next Steps
 
-1. ✅ Download historical data (2022-2025)
-2. ⏳ Generate training features
-3. ⏳ Train XGBoost model
-4. ⏳ Implement betting strategy
-5. ⏳ Deploy live predictions
+1. ✅ Download historical data
+2. ✅ Generate training features (150 features)
+3. ✅ Validate feature quality
+4. ⏳ Train Models:
+    - Baseline Elo
+    - Dixon-Coles
+    - XGBoost
+    - Stacking Ensemble
+5. ⏳ Implement betting strategy
+6. ⏳ Deploy live predictions
 
 ---
 
 ## 📞 Support
 
-- Check logs: `backfill.log`
+- Check logs: `backfill.log`, `feature_generation.log`, `feature_validation.log`
 - Review documentation in `docs/`
-- See examples in `notebooks/`
 
 ---
 
-**Version:** 3.0  
-**Status:** Development  
-**Last Updated:** January 25, 2026
+**Version:** 3.1
+**Status:** Development
+**Last Updated:** January 28, 2026

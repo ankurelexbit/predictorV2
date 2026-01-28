@@ -1,0 +1,194 @@
+2026-01-28 03:11:38,022 - INFO - Loading CSV files...
+2026-01-28 03:11:38,053 - INFO - ✅ Loaded fixtures: 36,088 rows
+2026-01-28 03:11:38,140 - INFO - ✅ Loaded statistics: 71,612 rows
+2026-01-28 03:11:40,356 - INFO - ✅ Loaded lineups: 1,442,176 rows
+2026-01-28 03:11:40,383 - INFO - ✅ Loaded sidelined: 201,202 rows
+
+================================================================================
+CSV DATA QUALITY ANALYSIS
+================================================================================
+Analysis started at: 2026-01-28 03:11:40
+
+================================================================================
+1. FIXTURES ANALYSIS
+================================================================================
+
+📊 Basic Statistics:
+  Total fixtures: 36,088
+  Columns: 17
+  Memory usage: 14.72 MB
+
+📅 Temporal Coverage:
+  Date range: 2016-01-02 12:45:00 to 2025-12-30 20:15:00
+  Years covered: 10
+
+  Fixtures per year:
+    2016: 3,624
+    2017: 3,756
+    2018: 3,616
+    2019: 3,646
+    2020: 3,342
+    2021: 3,976
+    2022: 3,380
+    2023: 3,840
+    2024: 3,436
+    2025: 3,472
+
+❓ Missing Values:
+            Count  Percentage
+home_score    202    0.559743
+away_score    202    0.559743
+result        202    0.559743
+round_id        2    0.005542
+
+🎯 Result Distribution:
+  H: 15,866 (44.2%)
+  A: 11,058 (30.8%)
+  D: 8,962 (25.0%)
+  Missing: 202 (0.6%)
+
+🏆 League Coverage:
+  Unique leagues: 5
+  Top 10 leagues by fixtures:
+    League 564: 7,604
+    League 384: 7,596
+    League 8: 7,592
+    League 301: 7,212
+    League 82: 6,084
+
+⚽ Team Coverage:
+  Unique teams: 163
+
+✅ Data Integrity:
+  Duplicate fixture_ids: 18044
+  Negative scores: 0
+  Result/Score mismatches: 0
+
+================================================================================
+2. STATISTICS ANALYSIS
+================================================================================
+
+📊 Basic Statistics:
+  Total rows: 71,612
+  Columns: 53
+  Memory usage: 28.48 MB
+
+📈 Coverage:
+  Unique fixtures: 17,903
+
+  Rows per fixture distribution:
+    4 rows: 17,903 fixtures
+
+🎯 Critical Statistics Availability:
+  ✅ shots_total              :  71,612 /  71,612 (100.0%)
+  ✅ shots_on_target          :  71,608 /  71,612 (100.0%)
+  ✅ shots_inside_box         :  71,610 /  71,612 (100.0%)
+  ⚠️ shots_outside_box        :  60,468 /  71,612 ( 84.4%)
+  ✅ possession               :  71,572 /  71,612 ( 99.9%)
+  ❌ corners                  : NOT FOUND
+  ❌ tackles                  : NOT FOUND
+  ✅ interceptions            :  71,612 /  71,612 (100.0%)
+  ⚠️ fouls                    :  55,646 /  71,612 ( 77.7%)
+  ✅ passes_total             :  71,600 /  71,612 (100.0%)
+  ✅ passes_accurate          :  71,600 /  71,612 (100.0%)
+  ⚠️ attacks                  :  39,858 /  71,612 ( 55.7%)
+  ❌ dangerous_attacks        :  29,188 /  71,612 ( 40.8%)
+
+🔗 Join Quality with Fixtures:
+  Fixtures with statistics: 17,903 / 18,044 (99.2%)
+  Fixtures without statistics: 141
+  Statistics without fixtures: 0
+
+================================================================================
+3. LINEUPS ANALYSIS
+================================================================================
+
+📊 Basic Statistics:
+  Total rows: 1,442,176
+  Columns: 80
+  Memory usage: 963.92 MB
+
+📈 Coverage:
+  Unique fixtures with lineups: 17,943
+  Unique players: 11,227
+
+  Players per fixture:
+    Mean: 80.4
+    Median: 80
+    Min: 58
+    Max: 106
+
+⚽ Lineup Composition:
+  Starters: 789,482 (54.7%)
+  Bench: 652,694 (45.3%)
+
+🎯 Player Statistics Availability:
+  ⚠️ rating              : 796,118 / 1,442,176 ( 55.2%)
+  ❌ minutes_played      : NOT FOUND
+  ❌ goals               : NOT FOUND
+  ❌ assists             : NOT FOUND
+  ❌ shots_total         : 413,534 / 1,442,176 ( 28.7%)
+  ⚠️ passes_total        : 504,100 / 1,442,176 ( 35.0%)
+  ⚠️ tackles             : 455,408 / 1,442,176 ( 31.6%)
+  ❌ interceptions       : 202,942 / 1,442,176 ( 14.1%)
+
+📊 Rating Distribution:
+  Mean: 1.77
+  Median: 1.00
+  Min: 1.00
+  Max: 9.00
+  Std: 1.02
+
+🔗 Join Quality with Fixtures:
+  Fixtures with lineups: 17,943 / 18,044 (99.4%)
+  Fixtures without lineups: 101
+
+================================================================================
+4. SIDELINED ANALYSIS
+================================================================================
+
+📊 Basic Statistics:
+  Total rows: 201,202
+  Columns: 7
+  Memory usage: 10.75 MB
+
+📈 Coverage:
+  Unique players sidelined: 4,525
+  Unique fixtures: 17,255
+
+📅 Temporal Coverage:
+  Earliest start: NaT
+  Latest end: NaT
+
+  Missing start_date: 201,202 (100.0%)
+  Missing end_date: 201,202 (100.0%)
+
+================================================================================
+5. CROSS-TABLE ANALYSIS
+================================================================================
+
+🔗 Data Coverage Across Tables:
+  Total fixtures: 18,044
+  With statistics: 17,903 (99.2%)
+  With lineups: 17,943 (99.4%)
+  With sidelined data: 17,255 (95.6%)
+
+✅ Fixtures with COMPLETE data (fixtures + stats + lineups):
+  17,903 / 18,044 (99.2%)
+
+================================================================================
+6. OVERALL QUALITY SUMMARY
+================================================================================
+
+📋 Quality Assessment:
+  ✅ Data quality is EXCELLENT!
+  ✅ Ready for training dataset generation
+
+💡 Recommendations:
+  • 141 fixtures missing statistics - consider re-running data collection
+
+  • Proceed to: python scripts/generate_training_data.py
+
+================================================================================
+ANALYSIS COMPLETE
+================================================================================

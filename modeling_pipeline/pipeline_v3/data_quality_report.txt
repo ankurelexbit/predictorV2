@@ -1,0 +1,199 @@
+2026-01-28 02:49:12,492 - INFO - Loading CSV files...
+2026-01-28 02:49:12,507 - INFO - ✅ Loaded fixtures: 18,044 rows
+2026-01-28 02:49:12,533 - INFO - ✅ Loaded statistics: 1,830 rows
+/Users/ankurgupta/code/predictorV2/modeling_pipeline/pipeline_v3/scripts/analyze_data_quality.py:68: DtypeWarning: Columns (6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,46,47,48,50,51,52,53,56,59) have mixed types. Specify dtype option on import or set low_memory=False.
+  self.lineups = pd.read_csv(self.data_dir / 'lineups.csv', on_bad_lines='skip')
+2026-01-28 02:49:13,849 - INFO - ✅ Loaded lineups: 531,717 rows
+2026-01-28 02:49:13,863 - INFO - ✅ Loaded sidelined: 100,601 rows
+
+================================================================================
+CSV DATA QUALITY ANALYSIS
+================================================================================
+Analysis started at: 2026-01-28 02:49:13
+
+================================================================================
+1. FIXTURES ANALYSIS
+================================================================================
+
+📊 Basic Statistics:
+  Total fixtures: 18,044
+  Columns: 17
+  Memory usage: 7.36 MB
+
+📅 Temporal Coverage:
+  Date range: 2016-01-02 12:45:00 to 2025-12-30 20:15:00
+  Years covered: 10
+
+  Fixtures per year:
+    2016: 1,812
+    2017: 1,878
+    2018: 1,808
+    2019: 1,823
+    2020: 1,671
+    2021: 1,988
+    2022: 1,690
+    2023: 1,920
+    2024: 1,718
+    2025: 1,736
+
+❓ Missing Values:
+            Count  Percentage
+home_score    101    0.559743
+away_score    101    0.559743
+result        101    0.559743
+round_id        1    0.005542
+
+🎯 Result Distribution:
+  H: 7,933 (44.2%)
+  A: 5,529 (30.8%)
+  D: 4,481 (25.0%)
+  Missing: 101 (0.6%)
+
+🏆 League Coverage:
+  Unique leagues: 5
+  Top 10 leagues by fixtures:
+    League 564: 3,802
+    League 384: 3,798
+    League 8: 3,796
+    League 301: 3,606
+    League 82: 3,042
+
+⚽ Team Coverage:
+  Unique teams: 163
+
+✅ Data Integrity:
+  Duplicate fixture_ids: 0
+  Negative scores: 0
+  Result/Score mismatches: 4742
+
+================================================================================
+2. STATISTICS ANALYSIS
+================================================================================
+
+📊 Basic Statistics:
+  Total rows: 1,830
+  Columns: 33
+  Memory usage: 0.45 MB
+
+📈 Coverage:
+  Unique fixtures: 915
+
+  Rows per fixture distribution:
+    2 rows: 915 fixtures
+
+🎯 Critical Statistics Availability:
+  ✅ shots_total              :   1,830 /   1,830 (100.0%)
+  ⚠️ shots_on_target          :   1,488 /   1,830 ( 81.3%)
+  ✅ shots_inside_box         :   1,830 /   1,830 (100.0%)
+  ❌ shots_outside_box        : NOT FOUND
+  ✅ possession               :   1,828 /   1,830 ( 99.9%)
+  ❌ corners                  : NOT FOUND
+  ❌ tackles                  : NOT FOUND
+  ✅ interceptions            :   1,784 /   1,830 ( 97.5%)
+  ❌ fouls                    : NOT FOUND
+  ✅ passes_total             :   1,726 /   1,830 ( 94.3%)
+  ✅ passes_accurate          :   1,828 /   1,830 ( 99.9%)
+  ⚠️ attacks                  :   1,096 /   1,830 ( 59.9%)
+  ❌ dangerous_attacks        : NOT FOUND
+
+🔗 Join Quality with Fixtures:
+  Fixtures with statistics: 915 / 18,044 (5.1%)
+  Fixtures without statistics: 17,129
+  Statistics without fixtures: 0
+
+================================================================================
+3. LINEUPS ANALYSIS
+================================================================================
+
+📊 Basic Statistics:
+  Total rows: 531,717
+  Columns: 61
+  Memory usage: 899.96 MB
+
+📈 Coverage:
+  Unique fixtures with lineups: 13,419
+  Unique players: 9,600
+
+  Players per fixture:
+    Mean: 39.6
+    Median: 40
+    Min: 29
+    Max: 52
+
+⚽ Lineup Composition:
+  Starters: 295,213 (55.5%)
+  Bench: 236,504 (44.5%)
+
+🎯 Player Statistics Availability:
+  ❌ rating              :  33,465 / 531,717 (  6.3%)
+  ❌ minutes_played      : NOT FOUND
+  ❌ goals               : NOT FOUND
+  ❌ assists             : NOT FOUND
+  ❌ shots_total         :  86,908 / 531,717 ( 16.3%)
+  ❌ passes_total        : 132,345 / 531,717 ( 24.9%)
+  ⚠️ tackles             : 227,010 / 531,717 ( 42.7%)
+  ⚠️ interceptions       : 265,197 / 531,717 ( 49.9%)
+
+📊 Rating Distribution:
+  Mean: 4.28
+  Median: 1.00
+  Min: 1.00
+  Max: 126.00
+  Std: 13.27
+
+🔗 Join Quality with Fixtures:
+  Fixtures with lineups: 13,419 / 18,044 (74.4%)
+  Fixtures without lineups: 4,625
+
+================================================================================
+4. SIDELINED ANALYSIS
+================================================================================
+
+📊 Basic Statistics:
+  Total rows: 100,601
+  Columns: 6
+  Memory usage: 4.61 MB
+
+📈 Coverage:
+  Unique players sidelined: 4,525
+  Unique fixtures: 17,255
+
+🏥 Sidelined Reasons (Top 15):
+
+📅 Temporal Coverage:
+  Earliest start: NaT
+  Latest end: NaT
+
+  Missing start_date: 100,601 (100.0%)
+  Missing end_date: 100,601 (100.0%)
+
+================================================================================
+5. CROSS-TABLE ANALYSIS
+================================================================================
+
+🔗 Data Coverage Across Tables:
+  Total fixtures: 18,044
+  With statistics: 915 (5.1%)
+  With lineups: 13,419 (74.4%)
+  With sidelined data: 17,255 (95.6%)
+
+✅ Fixtures with COMPLETE data (fixtures + stats + lineups):
+  887 / 18,044 (4.9%)
+
+================================================================================
+6. OVERALL QUALITY SUMMARY
+================================================================================
+
+📋 Quality Assessment:
+  ✅ Data quality is EXCELLENT!
+  ✅ Ready for training dataset generation
+
+💡 Recommendations:
+  • 17,129 fixtures missing statistics - consider re-running data collection
+  • Lineup coverage is 74.4% - feature engine will use team averages as fallback
+
+  • Proceed to: python scripts/generate_training_data.py
+
+================================================================================
+ANALYSIS COMPLETE
+================================================================================

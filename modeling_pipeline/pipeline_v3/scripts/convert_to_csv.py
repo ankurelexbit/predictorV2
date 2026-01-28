@@ -13,11 +13,15 @@ Usage:
     python scripts/convert_to_csv.py
 """
 
+
+
 import json
+import ijson
 import pandas as pd
 from pathlib import Path
 from tqdm import tqdm
 import logging
+import os
 
 # Set up logging
 logging.basicConfig(
@@ -26,23 +30,36 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def append_to_csv(data: list, output_file: Path, first_batch: bool):
+    """Append a list of dicts to CSV."""
+    if not data:
+        return
+    
+    df = pd.DataFrame(data)
+    mode = 'w' if first_batch else 'a'
+    header = first_batch
+    df.to_csv(output_file, mode=mode, header=header, index=False)
 
 def convert_fixtures_to_csv(data_dir: Path, output_dir: Path):
-    """Convert fixture JSON files to CSV."""
-    logger.info("Converting fixtures to CSV...")
+    """Convert fixture JSON files to CSV using streaming (ijson)."""
+    logger.info("Converting fixtures to CSV (Streaming with ijson)...")
     
     fixtures_dir = data_dir / 'fixtures'
     fixture_files = sorted(fixtures_dir.glob('all_fixtures_*.json'))
+    output_file = output_dir / 'fixtures.csv'
     
-    all_fixtures = []
+    count = 0
+    first_batch = True
     
-    for fixture_file in tqdm(fixture_files, desc="Processing fixture files"):
+    for fixture_file in tqdm(fixture_files, desc="Processing fixtures"):
         try:
-            with open(fixture_file) as f:
-                fixtures = json.load(f)
+            # Use ijson for memory-efficient streaming
+            with open(fixture_file, 'rb') as f:
+                # 'item' iterates over items in the top-level list
+                fixtures_stream = ijson.items(f, 'item')
                 
-                for fixture in fixtures:
-                    # Extract core fixture data
+                batch_data = []
+                for fixture in fixtures_stream:
                     fixture_data = {
                         'fixture_id': fixture.get('id'),
                         'league_id': fixture.get('league_id'),
@@ -55,12 +72,10 @@ def convert_fixtures_to_csv(data_dir: Path, output_dir: Path):
                         'state_id': fixture.get('state_id'),
                     }
                     
-                    # Extract participants (home/away teams)
                     participants = fixture.get('participants', [])
                     if len(participants) >= 2:
                         home_team = next((p for p in participants if p.get('meta', {}).get('location') == 'home'), None)
                         away_team = next((p for p in participants if p.get('meta', {}).get('location') == 'away'), None)
-                        
                         if home_team:
                             fixture_data['home_team_id'] = home_team.get('id')
                             fixture_data['home_team_name'] = home_team.get('name')
@@ -68,24 +83,20 @@ def convert_fixtures_to_csv(data_dir: Path, output_dir: Path):
                             fixture_data['away_team_id'] = away_team.get('id')
                             fixture_data['away_team_name'] = away_team.get('name')
                     
-                    # Extract scores
                     scores = fixture.get('scores', [])
                     for score in scores:
                         description = score.get('description', '').lower()
                         if 'current' in description or 'ft' in description:
                             participant_id = score.get('participant_id')
                             goals = score.get('score', {}).get('goals', 0)
-                            
                             if participant_id == fixture_data.get('home_team_id'):
                                 fixture_data['home_score'] = goals
                             elif participant_id == fixture_data.get('away_team_id'):
                                 fixture_data['away_score'] = goals
                     
-                    # Calculate result (H/D/A from home team perspective)
                     if 'home_score' in fixture_data and 'away_score' in fixture_data:
                         home_score = fixture_data['home_score']
                         away_score = fixture_data['away_score']
-                        
                         if home_score > away_score:
                             fixture_data['result'] = 'H'
                         elif home_score < away_score:
@@ -93,33 +104,39 @@ def convert_fixtures_to_csv(data_dir: Path, output_dir: Path):
                         else:
                             fixture_data['result'] = 'D'
                     
-                    # State
                     state = fixture.get('state', {})
                     fixture_data['state'] = state.get('short_name', '')
                     
-                    all_fixtures.append(fixture_data)
-        
+                    batch_data.append(fixture_data)
+                    
+                    # Write batch every 1000 items to keep memory low
+                    if len(batch_data) >= 1000:
+                        append_to_csv(batch_data, output_file, first_batch)
+                        count += len(batch_data)
+                        first_batch = False
+                        batch_data = []
+                
+                # Write remaining
+                if batch_data:
+                    append_to_csv(batch_data, output_file, first_batch)
+                    count += len(batch_data)
+                    first_batch = False
+                    
         except Exception as e:
             logger.error(f"Error processing {fixture_file.name}: {e}")
             continue
-    
-    # Create DataFrame and save
-    df = pd.DataFrame(all_fixtures)
-    output_file = output_dir / 'fixtures.csv'
-    df.to_csv(output_file, index=False)
-    
-    logger.info(f"✅ Saved {len(df)} fixtures to {output_file}")
-    return df
+            
+    logger.info(f"✅ Saved {count} fixtures to {output_file}")
 
 
 def convert_statistics_to_csv(data_dir: Path, output_dir: Path):
-    """Convert statistics JSON files to CSV."""
-    logger.info("Converting statistics to CSV...")
+    """Convert statistics from fixture JSON files to CSV using streaming (ijson)."""
+    logger.info("Converting statistics to CSV (Streaming with ijson)...")
     
-    stats_dir = data_dir / 'statistics'
-    stats_files = list(stats_dir.glob('fixture_*.json'))
+    fixtures_dir = data_dir / 'fixtures'
+    fixture_files = sorted(fixtures_dir.glob('all_fixtures_*.json'))
+    output_file = output_dir / 'statistics.csv'
     
-    # Common stat type_id mappings (from SportMonks API)
     stat_type_names = {
         41: 'shots_total', 42: 'shots_on_target', 43: 'shots_off_target',
         44: 'shots_blocked', 45: 'shots_inside_box', 46: 'shots_outside_box',
@@ -136,74 +153,70 @@ def convert_statistics_to_csv(data_dir: Path, output_dir: Path):
         92: 'duels', 93: 'duels_won', 94: 'aerials_won',
     }
     
-    all_team_stats = []
+    count = 0
+    first_batch = True
     
-    for stats_file in tqdm(stats_files, desc="Processing statistics files"):
+    for fixture_file in tqdm(fixture_files, desc="Extracting stats"):
         try:
-            fixture_id = int(stats_file.stem.split('_')[1])
-            
-            with open(stats_file) as f:
-                stats_list = json.load(f)
+            with open(fixture_file, 'rb') as f:
+                fixtures_stream = ijson.items(f, 'item')
                 
-                # Group statistics by participant_id (team)
-                team_stats_dict = {}
+                batch_data = []
+                for fixture in fixtures_stream:
+                    fixture_id = fixture.get('id')
+                    stats_list = fixture.get('statistics', [])
+                    if not stats_list: continue
+                    
+                    team_stats_dict = {}
+                    for stat in stats_list:
+                        participant_id = stat.get('participant_id')
+                        type_id = stat.get('type_id')
+                        value = stat.get('data', {}).get('value')
+                        location = stat.get('location', '')
+                        
+                        if participant_id not in team_stats_dict:
+                            team_stats_dict[participant_id] = {
+                                'fixture_id': fixture_id,
+                                'team_id': participant_id,
+                                'is_home': location == 'home'
+                            }
+                        
+                        stat_name = stat_type_names.get(type_id, f'stat_{type_id}')
+                        try:
+                            if value is not None:
+                                clean_val = str(value).rstrip('%')
+                                team_stats_dict[participant_id][stat_name] = float(clean_val) if '.' in clean_val else int(clean_val)
+                        except:
+                            team_stats_dict[participant_id][stat_name] = value
+
+                    batch_data.extend(team_stats_dict.values())
+
+                    if len(batch_data) >= 1000:
+                        append_to_csv(batch_data, output_file, first_batch)
+                        count += len(batch_data)
+                        first_batch = False
+                        batch_data = []
                 
-                for stat in stats_list:
-                    participant_id = stat.get('participant_id')
-                    type_id = stat.get('type_id')
-                    value = stat.get('data', {}).get('value')
-                    location = stat.get('location', '')
+                if batch_data:
+                    append_to_csv(batch_data, output_file, first_batch)
+                    count += len(batch_data)
+                    first_batch = False
                     
-                    if participant_id not in team_stats_dict:
-                        team_stats_dict[participant_id] = {
-                            'fixture_id': fixture_id,
-                            'team_id': participant_id,
-                            'location': location,
-                        }
-                    
-                    # Map type_id to stat name
-                    stat_name = stat_type_names.get(type_id, f'stat_{type_id}')
-                    
-                    # Convert value to numeric if possible
-                    try:
-                        if value is not None:
-                            if isinstance(value, (int, float)):
-                                team_stats_dict[participant_id][stat_name] = value
-                            else:
-                                team_stats_dict[participant_id][stat_name] = float(value) if '.' in str(value) else int(value)
-                    except (ValueError, TypeError):
-                        team_stats_dict[participant_id][stat_name] = value
-                
-                # Add all teams for this fixture
-                all_team_stats.extend(team_stats_dict.values())
-        
         except Exception as e:
-            logger.error(f"Error processing {stats_file.name}: {e}")
+            logger.error(f"Error {fixture_file.name}: {e}")
             continue
-    
-    # Create DataFrame and save
-    df = pd.DataFrame(all_team_stats)
-    
-    # Add is_home flag based on location
-    if 'location' in df.columns:
-        df['is_home'] = df['location'] == 'home'
-        df = df.drop('location', axis=1)
-    
-    output_file = output_dir / 'statistics.csv'
-    df.to_csv(output_file, index=False)
-    
-    logger.info(f"✅ Saved {len(df)} team statistics to {output_file}")
-    return df
+
+    logger.info(f"✅ Saved {count} statistics rows to {output_file}")
 
 
 def convert_lineups_to_csv(data_dir: Path, output_dir: Path):
-    """Convert lineups JSON files to CSV."""
-    logger.info("Converting lineups to CSV...")
+    """Convert lineups from fixture JSON files to CSV using streaming (ijson)."""
+    logger.info("Converting lineups to CSV (Streaming with ijson)...")
     
-    lineups_dir = data_dir / 'lineups'
-    lineup_files = list(lineups_dir.glob('fixture_*.json'))
+    fixtures_dir = data_dir / 'fixtures'
+    fixture_files = sorted(fixtures_dir.glob('all_fixtures_*.json'))
+    output_file = output_dir / 'lineups.csv'
     
-    # Player detail type_id mappings
     detail_type_names = {
         88: 'rating', 89: 'minutes_played', 90: 'goals', 91: 'assists',
         92: 'yellow_cards', 93: 'red_cards', 94: 'shots_total',
@@ -215,135 +228,142 @@ def convert_lineups_to_csv(data_dir: Path, output_dir: Path):
         110: 'penalties_committed', 111: 'hit_woodwork',
     }
     
-    all_lineups = []
+    count = 0
+    first_batch = True
     
-    for lineup_file in tqdm(lineup_files, desc="Processing lineup files"):
+    for fixture_file in tqdm(fixture_files, desc="Extracting lineups"):
         try:
-            fixture_id = int(lineup_file.stem.split('_')[1])
-            
-            with open(lineup_file) as f:
-                lineups_list = json.load(f)
+            with open(fixture_file, 'rb') as f:
+                fixtures_stream = ijson.items(f, 'item')
                 
-                for player in lineups_list:
-                    player_data = {
-                        'fixture_id': fixture_id,
-                        'team_id': player.get('team_id'),
-                        'player_id': player.get('player_id'),
-                        'player_name': player.get('player_name'),
-                        'position_id': player.get('position_id'),
-                        'formation_position': player.get('formation_position'),
-                        'jersey_number': player.get('jersey_number'),
-                        'type_id': player.get('type_id'),
-                    }
+                batch_data = []
+                for fixture in fixtures_stream:
+                    fixture_id = fixture.get('id')
+                    lineups_list = fixture.get('lineups', [])
+                    if not lineups_list: continue
                     
-                    # Determine if starter (type_id 11 = starting, 12 = bench)
-                    player_data['is_starter'] = player.get('type_id') == 11
+                    for player in lineups_list:
+                        player_data = {
+                            'fixture_id': fixture_id,
+                            'team_id': player.get('team_id'),
+                            'player_id': player.get('player_id'),
+                            'player_name': player.get('player_name'),
+                            'position_id': player.get('position_id'),
+                            'is_starter': player.get('type_id') == 11
+                        }
+                        
+                        details = player.get('details', [])
+                        if details:
+                            for detail in details:
+                                type_id = detail.get('type_id')
+                                value = detail.get('data', {}).get('value')
+                                stat_name = detail_type_names.get(type_id, f'detail_{type_id}')
+                                try:
+                                    if value is not None:
+                                        clean_val = str(value).rstrip('%')
+                                        player_data[stat_name] = float(clean_val) if '.' in clean_val else int(clean_val)
+                                except:
+                                    player_data[stat_name] = value
+                        
+                        batch_data.append(player_data)
+
+                    if len(batch_data) >= 1000:
+                        append_to_csv(batch_data, output_file, first_batch)
+                        count += len(batch_data)
+                        first_batch = False
+                        batch_data = []
+                
+                if batch_data:
+                    append_to_csv(batch_data, output_file, first_batch)
+                    count += len(batch_data)
+                    first_batch = False
                     
-                    # Extract detailed stats from details array
-                    details = player.get('details', [])
-                    if details:
-                        for detail in details:
-                            type_id = detail.get('type_id')
-                            value = detail.get('data', {}).get('value')
-                            
-                            # Map type_id to stat name
-                            stat_name = detail_type_names.get(type_id, f'detail_{type_id}')
-                            
-                            # Convert value to numeric if possible
-                            try:
-                                if value is not None:
-                                    if isinstance(value, (int, float)):
-                                        player_data[stat_name] = value
-                                    else:
-                                        player_data[stat_name] = float(value) if '.' in str(value) else int(value)
-                            except (ValueError, TypeError):
-                                player_data[stat_name] = value
-                    
-                    all_lineups.append(player_data)
-        
         except Exception as e:
-            logger.error(f"Error processing {lineup_file.name}: {e}")
+            logger.error(f"Error {fixture_file.name}: {e}")
             continue
-    
-    # Create DataFrame and save
-    df = pd.DataFrame(all_lineups)
-    output_file = output_dir / 'lineups.csv'
-    df.to_csv(output_file, index=False)
-    
-    logger.info(f"✅ Saved {len(df)} player lineups to {output_file}")
-    return df
+
+    logger.info(f"✅ Saved {count} lineup rows to {output_file}")
 
 
 def convert_sidelined_to_csv(data_dir: Path, output_dir: Path):
-    """Convert sidelined JSON files to CSV."""
-    logger.info("Converting sidelined data to CSV...")
+    """Convert sidelined from fixture JSON files to CSV using streaming (ijson)."""
+    logger.info("Converting sidelined data to CSV (Streaming with ijson)...")
     
-    sidelined_dir = data_dir / 'sidelined'
-    sidelined_files = list(sidelined_dir.glob('team_*.json'))
-    
-    all_sidelined = []
-    
-    for sidelined_file in tqdm(sidelined_files, desc="Processing sidelined files"):
-        try:
-            team_id = int(sidelined_file.stem.split('_')[1])
-            
-            with open(sidelined_file) as f:
-                sidelined_list = json.load(f)
-                
-                for sidelined in sidelined_list:
-                    sidelined_data = {
-                        'team_id': team_id,
-                        'player_id': sidelined.get('player_id'),
-                        'player_name': sidelined.get('player_name'),
-                        'start_date': sidelined.get('start_date'),
-                        'end_date': sidelined.get('end_date'),
-                        'category': sidelined.get('category'),
-                        'reason': sidelined.get('reason'),
-                    }
-                    
-                    all_sidelined.append(sidelined_data)
-        
-        except Exception as e:
-            logger.error(f"Error processing {sidelined_file.name}: {e}")
-            continue
-    
-    # Create DataFrame and save
-    df = pd.DataFrame(all_sidelined)
+    fixtures_dir = data_dir / 'fixtures'
+    fixture_files = sorted(fixtures_dir.glob('all_fixtures_*.json'))
     output_file = output_dir / 'sidelined.csv'
-    df.to_csv(output_file, index=False)
     
-    logger.info(f"✅ Saved {len(df)} sidelined records to {output_file}")
-    return df
+    count = 0
+    first_batch = True
+    
+    for fixture_file in tqdm(fixture_files, desc="Extracting sidelined"):
+        try:
+            with open(fixture_file, 'rb') as f:
+                fixtures_stream = ijson.items(f, 'item')
+                
+                batch_data = []
+                for fixture in fixtures_stream:
+                    fixture_id = fixture.get('id')
+                    sidelined_list = fixture.get('sidelined', [])
+                    if not sidelined_list: continue
+                    
+                    for sidelined in sidelined_list:
+                        sidelined_data = {
+                            'fixture_id': fixture_id,
+                            'team_id': sidelined.get('team_id'),
+                            'player_id': sidelined.get('player_id'),
+                            'reason': sidelined.get('reason'),
+                            'start_date': sidelined.get('start_date'),
+                            'end_date': sidelined.get('end_date')
+                        }
+                        batch_data.append(sidelined_data)
+                        
+                    if len(batch_data) >= 1000:
+                        append_to_csv(batch_data, output_file, first_batch)
+                        count += len(batch_data)
+                        first_batch = False
+                        batch_data = []
+                
+                if batch_data:
+                    append_to_csv(batch_data, output_file, first_batch)
+                    count += len(batch_data)
+                    first_batch = False
+                    
+        except Exception as e:
+            logger.error(f"Error {fixture_file.name}: {e}")
+            continue
+            
+    logger.info(f"✅ Saved {count} sidelined rows to {output_file}")
 
 
 def main():
-    """Main conversion process."""
     logger.info("=" * 80)
-    logger.info("JSON TO CSV CONVERSION")
+    logger.info("JSON TO CSV STREAMING CONVERTER (IJSON)")
     logger.info("=" * 80)
     
-    # Paths
+    try:
+        import ijson
+    except ImportError:
+        logger.error("❌ 'ijson' library not found!")
+        logger.error("Please run: pip install ijson")
+        return
+        
     data_dir = Path('data/historical')
     output_dir = Path('data/csv')
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Convert each data type
-    fixtures_df = convert_fixtures_to_csv(data_dir, output_dir)
-    statistics_df = convert_statistics_to_csv(data_dir, output_dir)
-    lineups_df = convert_lineups_to_csv(data_dir, output_dir)
-    sidelined_df = convert_sidelined_to_csv(data_dir, output_dir)
+    # Clean old CSVs to ensure clean write
+    for f in ['fixtures.csv', 'statistics.csv', 'lineups.csv', 'sidelined.csv']:
+        path = output_dir / f
+        if path.exists():
+            path.unlink()
     
-    # Summary
-    logger.info("\n" + "=" * 80)
-    logger.info("CONVERSION COMPLETE")
-    logger.info("=" * 80)
-    logger.info(f"Fixtures:    {len(fixtures_df):,} rows")
-    logger.info(f"Statistics:  {len(statistics_df):,} rows")
-    logger.info(f"Lineups:     {len(lineups_df):,} rows")
-    logger.info(f"Sidelined:   {len(sidelined_df):,} rows")
-    logger.info(f"\nOutput directory: {output_dir}")
-    logger.info("=" * 80)
-
+    convert_fixtures_to_csv(data_dir, output_dir)
+    convert_statistics_to_csv(data_dir, output_dir)
+    convert_lineups_to_csv(data_dir, output_dir)
+    convert_sidelined_to_csv(data_dir, output_dir)
+    
+    logger.info("\nCONVERSION COMPLETE")
 
 if __name__ == "__main__":
     main()

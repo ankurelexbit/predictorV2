@@ -1,0 +1,175 @@
+
+====================================================================================================
+ENHANCED DATA QUALITY ANALYSIS - PIPELINE V3
+====================================================================================================
+Analysis Time: 2026-01-28 03:26:57
+Data Directory: data/csv
+
+📂 Loading CSV files...
+   ✅ Fixtures: 18,044 rows
+   ✅ Statistics: 35,806 rows
+   ✅ Lineups: 719,115 rows
+   ✅ Sidelined: 71,411 rows
+
+====================================================================================================
+1. FIXTURES DATA QUALITY
+====================================================================================================
+
+📊 Volume:
+   Total fixtures: 18,044
+   Unique fixture IDs: 18,044
+   Duplicate IDs: 0
+
+📅 Temporal Coverage:
+   Date range: 2016-01-02 12:45:00 to 2025-12-30 20:15:00
+   Years: 2016 - 2025
+   Total years: 10
+
+🏆 League Coverage:
+   Unique leagues: 5
+   Unique teams: 163
+
+🎯 Result Distribution:
+   H: 7,933 (44.2%)
+   A: 5,529 (30.8%)
+   D: 4,481 (25.0%)
+   Missing: 101 (0.6%)
+
+✅ Data Quality:
+   Duplicate fixture_ids: 0
+   Negative scores: 0
+   Result/Score mismatches: 0
+
+====================================================================================================
+2. STATISTICS DATA QUALITY
+====================================================================================================
+
+📊 Volume:
+   Total rows: 35,806
+   Unique fixtures: 17,903
+   Expected rows (2 per fixture): 36,088
+
+📈 Coverage:
+   Fixtures with statistics: 17,903 / 18,044 (99.2%)
+   Missing statistics: 141
+
+🎯 Key Statistics Availability:
+   ✅ Shots Total              :  35,806 /  35,806 (100.0%)
+   ✅ Shots on Target          :  35,804 /  35,806 (100.0%)
+   ✅ Shots Inside Box         :  35,805 /  35,806 (100.0%)
+   ⚠️ Shots Outside Box        :  30,234 /  35,806 ( 84.4%)
+   ✅ Possession %             :  35,786 /  35,806 ( 99.9%)
+   ✅ Passes Total             :  35,800 /  35,806 (100.0%)
+   ✅ Passes Accurate          :  35,800 /  35,806 (100.0%)
+   ✅ Interceptions            :  35,806 /  35,806 (100.0%)
+   ⚠️ Fouls                    :  27,823 /  35,806 ( 77.7%)
+   ⚠️ Attacks                  :  19,929 /  35,806 ( 55.7%)
+   ❌ Dangerous Attacks        :  14,594 /  35,806 ( 40.8%)
+
+====================================================================================================
+3. LINEUPS DATA QUALITY
+====================================================================================================
+
+📊 Volume:
+   Total rows: 719,115
+   Unique fixtures: 17,943
+   Unique players: 11,227
+
+📈 Coverage:
+   Fixtures with lineups: 17,943 / 18,044 (99.4%)
+   Missing lineups: 101
+
+⚽ Lineup Composition:
+   Avg players per fixture: 40.1
+   Median: 40
+   Min: 19
+   Max: 53
+
+   Starters: 393,672 (54.7%)
+   Bench: 325,443 (45.3%)
+
+🎯 Player Statistics Availability:
+   ⚠️ Rating              :   398,052 /   719,115 ( 55.4%)
+   ❌ Minutes Played      : NOT FOUND
+   ❌ Goals               : NOT FOUND
+   ❌ Assists             : NOT FOUND
+   ❌ Shots               :   206,224 /   719,115 ( 28.7%)
+   ⚠️ Passes              :   251,362 /   719,115 ( 35.0%)
+   ⚠️ Tackles             :   227,132 /   719,115 ( 31.6%)
+   ❌ Interceptions       :   101,216 /   719,115 ( 14.1%)
+
+📊 Rating Distribution:
+   Count: 398,052
+   Mean: 1.77
+   Median: 1.00
+   Min: 1.00
+   Max: 9.00
+   Std: 1.02
+
+====================================================================================================
+4. SIDELINED DATA QUALITY
+====================================================================================================
+
+📊 Volume:
+   Total rows: 71,411
+   Unique fixtures: 17,255
+   Unique players: 4,525
+
+📅 Date Availability:
+   ❌ start_date     :       0 /  71,411 (  0.0%)
+   ❌ end_date       :       0 /  71,411 (  0.0%)
+   ❌ category       :       0 /  71,411 (  0.0%)
+
+====================================================================================================
+5. CROSS-TABLE DATA COMPLETENESS
+====================================================================================================
+
+🔗 Coverage Summary:
+   Total unique fixtures: 18,044
+   With statistics: 17,903 (99.2%)
+   With lineups: 17,943 (99.4%)
+
+✅ Fixtures with COMPLETE data (fixtures + stats + lineups):
+   17,903 / 18,044 (99.2%)
+
+====================================================================================================
+6. FEATURE GENERATION READINESS
+====================================================================================================
+
+📊 Pillar 1: Fundamentals (50 features)
+   Status: ✅ READY
+   Coverage: 99.2%
+   Features: Elo, Form, H2H, League Position, Home Advantage
+
+📊 Pillar 2: Modern Analytics (60 features)
+   Status: ✅ READY
+   Coverage: 99.2%
+   Features: Derived xG, Shot Analysis, Defensive Metrics, Attack Patterns
+
+📊 Pillar 3: Hidden Edges (40 features)
+   Status: ⚠️ PARTIAL
+   Coverage: 99.4% (lineups)
+   Feasible features: ~15/40
+   Available: Momentum, Fixture-Adjusted
+   Missing: Player Availability (25 features) - sidelined dates not available
+
+🎯 TOTAL FEASIBLE FEATURES: ~125/150
+
+====================================================================================================
+7. RECOMMENDATIONS
+====================================================================================================
+
+📋 Status:
+
+   ❌ Critical Issues (1):
+      • Sidelined data missing dates - cannot implement player availability features
+
+💡 Next Steps:
+   2. Generate training dataset: python scripts/generate_training_data.py
+   3. Train model: python scripts/train_model.py
+
+   Optional: Investigate sidelined data to unlock 25 player availability features
+
+====================================================================================================
+ANALYSIS COMPLETE
+====================================================================================================

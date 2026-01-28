@@ -1,0 +1,1303 @@
+{
+  "missing_values": {
+    "home_derived_xg_per_match_5": {
+      "count": 14743,
+      "percentage": 84.86
+    },
+    "away_derived_xg_per_match_5": {
+      "count": 14751,
+      "percentage": 84.9
+    },
+    "home_derived_xga_per_match_5": {
+      "count": 14743,
+      "percentage": 84.86
+    },
+    "away_derived_xga_per_match_5": {
+      "count": 14751,
+      "percentage": 84.9
+    },
+    "home_derived_xgd_5": {
+      "count": 14743,
+      "percentage": 84.86
+    },
+    "away_derived_xgd_5": {
+      "count": 14751,
+      "percentage": 84.9
+    },
+    "derived_xgd_matchup": {
+      "count": 15035,
+      "percentage": 86.54
+    },
+    "home_goals_vs_xg_5": {
+      "count": 14743,
+      "percentage": 84.86
+    },
+    "away_goals_vs_xg_5": {
+      "count": 14751,
+      "percentage": 84.9
+    },
+    "home_ga_vs_xga_5": {
+      "count": 14743,
+      "percentage": 84.86
+    },
+    "away_ga_vs_xga_5": {
+      "count": 14751,
+      "percentage": 84.9
+    },
+    "home_xg_per_shot_5": {
+      "count": 14743,
+      "percentage": 84.86
+    },
+    "away_xg_per_shot_5": {
+      "count": 14751,
+      "percentage": 84.9
+    },
+    "home_big_chances_per_match_5": {
+      "count": 14738,
+      "percentage": 84.83
+    },
+    "away_big_chances_per_match_5": {
+      "count": 14746,
+      "percentage": 84.87
+    },
+    "home_xg_trend_10": {
+      "count": 15223,
+      "percentage": 87.62
+    },
+    "away_xg_trend_10": {
+      "count": 15238,
+      "percentage": 87.71
+    },
+    "home_xga_trend_10": {
+      "count": 15223,
+      "percentage": 87.62
+    },
+    "away_xga_trend_10": {
+      "count": 15238,
+      "percentage": 87.71
+    },
+    "home_derived_xg_per_match_10": {
+      "count": 15223,
+      "percentage": 87.62
+    },
+    "away_derived_xg_per_match_10": {
+      "count": 15238,
+      "percentage": 87.71
+    },
+    "home_derived_xga_per_match_10": {
+      "count": 15223,
+      "percentage": 87.62
+    },
+    "away_derived_xga_per_match_10": {
+      "count": 15238,
+      "percentage": 87.71
+    },
+    "home_shots_on_target_per_match_5": {
+      "count": 6,
+      "percentage": 0.03
+    },
+    "away_shots_on_target_per_match_5": {
+      "count": 4,
+      "percentage": 0.02
+    },
+    "home_inside_box_shot_pct_5": {
+      "count": 3,
+      "percentage": 0.02
+    },
+    "away_inside_box_shot_pct_5": {
+      "count": 2,
+      "percentage": 0.01
+    },
+    "home_outside_box_shot_pct_5": {
+      "count": 2758,
+      "percentage": 15.87
+    },
+    "away_outside_box_shot_pct_5": {
+      "count": 2750,
+      "percentage": 15.83
+    },
+    "home_shot_accuracy_5": {
+      "count": 6,
+      "percentage": 0.03
+    },
+    "away_shot_accuracy_5": {
+      "count": 4,
+      "percentage": 0.02
+    },
+    "home_shots_on_target_conceded_5": {
+      "count": 6,
+      "percentage": 0.03
+    },
+    "home_tackles_per_90": {
+      "count": 3180,
+      "percentage": 18.3
+    },
+    "away_tackles_per_90": {
+      "count": 3180,
+      "percentage": 18.3
+    },
+    "home_defensive_actions_per_90": {
+      "count": 3180,
+      "percentage": 18.3
+    },
+    "away_defensive_actions_per_90": {
+      "count": 3180,
+      "percentage": 18.3
+    },
+    "home_possession_pct_5": {
+      "count": 42,
+      "percentage": 0.24
+    },
+    "away_possession_pct_5": {
+      "count": 44,
+      "percentage": 0.25
+    },
+    "home_passes_per_match_5": {
+      "count": 15,
+      "percentage": 0.09
+    },
+    "away_passes_per_match_5": {
+      "count": 15,
+      "percentage": 0.09
+    },
+    "home_attacks_per_match_5": {
+      "count": 15095,
+      "percentage": 86.88
+    },
+    "away_attacks_per_match_5": {
+      "count": 15100,
+      "percentage": 86.91
+    },
+    "home_dangerous_attacks_per_match_5": {
+      "count": 11613,
+      "percentage": 66.84
+    },
+    "away_dangerous_attacks_per_match_5": {
+      "count": 11627,
+      "percentage": 66.92
+    },
+    "home_dangerous_attack_ratio_5": {
+      "count": 1037,
+      "percentage": 5.97
+    },
+    "away_dangerous_attack_ratio_5": {
+      "count": 1046,
+      "percentage": 6.02
+    }
+  },
+  "range_violations": {
+    "elo_diff_with_ha": {
+      "expected": [
+        -500,
+        500
+      ],
+      "actual": [
+        -393.2343598634632,
+        510.58078422682706
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "home_elo_change_5": {
+      "expected": [
+        1000,
+        2000
+      ],
+      "actual": [
+        -168.972164469669,
+        125.93751981211722
+      ],
+      "violation_type": [
+        "min"
+      ]
+    },
+    "away_elo_change_5": {
+      "expected": [
+        1000,
+        2000
+      ],
+      "actual": [
+        -158.96305029596033,
+        156.74498296169327
+      ],
+      "violation_type": [
+        "min"
+      ]
+    },
+    "home_elo_change_10": {
+      "expected": [
+        1000,
+        2000
+      ],
+      "actual": [
+        -187.84471477059992,
+        167.57784183779086
+      ],
+      "violation_type": [
+        "min"
+      ]
+    },
+    "away_elo_change_10": {
+      "expected": [
+        1000,
+        2000
+      ],
+      "actual": [
+        -169.0544174742531,
+        190.388667456054
+      ],
+      "violation_type": [
+        "min"
+      ]
+    },
+    "home_elo_vs_league_avg": {
+      "expected": [
+        1000,
+        2000
+      ],
+      "actual": [
+        -246.3425140984707,
+        294.75589134887923
+      ],
+      "violation_type": [
+        "min"
+      ]
+    },
+    "away_elo_vs_league_avg": {
+      "expected": [
+        1000,
+        2000
+      ],
+      "actual": [
+        -243.2579363027694,
+        297.39847433476234
+      ],
+      "violation_type": [
+        "min"
+      ]
+    },
+    "points_diff": {
+      "expected": [
+        0,
+        120
+      ],
+      "actual": [
+        -66.0,
+        74.0
+      ],
+      "violation_type": [
+        "min"
+      ]
+    },
+    "home_points_at_home": {
+      "expected": [
+        0,
+        120
+      ],
+      "actual": [
+        0.0,
+        458.0
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "away_points_away": {
+      "expected": [
+        0,
+        120
+      ],
+      "actual": [
+        0.0,
+        400.0
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "home_derived_xg_per_match_5": {
+      "expected": [
+        0,
+        20
+      ],
+      "actual": [
+        0.0,
+        24.720800000000004
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "away_derived_xg_per_match_5": {
+      "expected": [
+        0,
+        20
+      ],
+      "actual": [
+        0.0,
+        24.928800000000003
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "home_derived_xga_per_match_5": {
+      "expected": [
+        0,
+        20
+      ],
+      "actual": [
+        0.0,
+        26.881400000000003
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "away_derived_xga_per_match_5": {
+      "expected": [
+        0,
+        20
+      ],
+      "actual": [
+        0.0,
+        26.2444
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "away_derived_xgd_5": {
+      "expected": [
+        -10,
+        10
+      ],
+      "actual": [
+        -8.871200000000002,
+        10.441600000000005
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "derived_xgd_matchup": {
+      "expected": [
+        -10,
+        10
+      ],
+      "actual": [
+        -13.198199999999996,
+        14.963400000000004
+      ],
+      "violation_type": [
+        "min",
+        "max"
+      ]
+    },
+    "home_goals_vs_xg_5": {
+      "expected": [
+        -20,
+        20
+      ],
+      "actual": [
+        -23.120800000000003,
+        1.4
+      ],
+      "violation_type": [
+        "min"
+      ]
+    },
+    "away_goals_vs_xg_5": {
+      "expected": [
+        -20,
+        20
+      ],
+      "actual": [
+        -23.3288,
+        1.8
+      ],
+      "violation_type": [
+        "min"
+      ]
+    },
+    "home_ga_vs_xga_5": {
+      "expected": [
+        -20,
+        20
+      ],
+      "actual": [
+        -25.2814,
+        2.4
+      ],
+      "violation_type": [
+        "min"
+      ]
+    },
+    "away_ga_vs_xga_5": {
+      "expected": [
+        -20,
+        20
+      ],
+      "actual": [
+        -24.6444,
+        2.4
+      ],
+      "violation_type": [
+        "min"
+      ]
+    },
+    "home_xg_per_shot_5": {
+      "expected": [
+        0,
+        0.5
+      ],
+      "actual": [
+        0.0,
+        7.974230769230768
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "away_xg_per_shot_5": {
+      "expected": [
+        0,
+        0.5
+      ],
+      "actual": [
+        0.0,
+        7.722
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "home_big_chance_conversion_5": {
+      "expected": [
+        0,
+        2
+      ],
+      "actual": [
+        0.0,
+        4.0
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "away_big_chance_conversion_5": {
+      "expected": [
+        0,
+        2
+      ],
+      "actual": [
+        0.0,
+        4.0
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "home_xg_trend_10": {
+      "expected": [
+        -3,
+        3
+      ],
+      "actual": [
+        -6.2036,
+        7.041300000000007
+      ],
+      "violation_type": [
+        "min",
+        "max"
+      ]
+    },
+    "away_xg_trend_10": {
+      "expected": [
+        -3,
+        3
+      ],
+      "actual": [
+        -6.480199999999998,
+        7.0959
+      ],
+      "violation_type": [
+        "min",
+        "max"
+      ]
+    },
+    "home_derived_xga_per_match_10": {
+      "expected": [
+        0,
+        20
+      ],
+      "actual": [
+        0.0,
+        26.881400000000003
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "away_derived_xga_per_match_10": {
+      "expected": [
+        0,
+        20
+      ],
+      "actual": [
+        0.0,
+        24.50283333333333
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "home_inside_box_shot_pct_5": {
+      "expected": [
+        0,
+        30
+      ],
+      "actual": [
+        0.0,
+        38.5
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "away_inside_box_shot_pct_5": {
+      "expected": [
+        0,
+        30
+      ],
+      "actual": [
+        0.0,
+        38.333333333333336
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "home_outside_box_shot_pct_5": {
+      "expected": [
+        0,
+        40
+      ],
+      "actual": [
+        0.0,
+        140.92307692307693
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "away_outside_box_shot_pct_5": {
+      "expected": [
+        0,
+        40
+      ],
+      "actual": [
+        0.0,
+        96.70588235294116
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "home_shot_accuracy_5": {
+      "expected": [
+        0,
+        5
+      ],
+      "actual": [
+        0.0,
+        6.0
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "away_shot_accuracy_5": {
+      "expected": [
+        0,
+        5
+      ],
+      "actual": [
+        0.0,
+        6.571428571428571
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "home_ppda_5": {
+      "expected": [
+        0,
+        100
+      ],
+      "actual": [
+        0.0,
+        173.31578947368422
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "away_ppda_5": {
+      "expected": [
+        0,
+        100
+      ],
+      "actual": [
+        0.0,
+        139.75
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "away_dangerous_attack_ratio_5": {
+      "expected": [
+        0,
+        150
+      ],
+      "actual": [
+        0.0,
+        151.0
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "home_points_trend_10": {
+      "expected": [
+        0,
+        120
+      ],
+      "actual": [
+        -0.7999999999999999,
+        0.8999999999999997
+      ],
+      "violation_type": [
+        "min"
+      ]
+    },
+    "away_points_trend_10": {
+      "expected": [
+        0,
+        120
+      ],
+      "actual": [
+        -0.8999999999999997,
+        0.6999999999999998
+      ],
+      "violation_type": [
+        "min"
+      ]
+    },
+    "home_days_since_last_match": {
+      "expected": [
+        0,
+        60
+      ],
+      "actual": [
+        1.0,
+        3008.0
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "away_days_since_last_match": {
+      "expected": [
+        0,
+        60
+      ],
+      "actual": [
+        1.0,
+        2661.0
+      ],
+      "violation_type": [
+        "max"
+      ]
+    },
+    "rest_advantage": {
+      "expected": [
+        -30,
+        30
+      ],
+      "actual": [
+        -2562.0,
+        2926.0
+      ],
+      "violation_type": [
+        "min",
+        "max"
+      ]
+    },
+    "home_elo_pressure": {
+      "expected": [
+        1000,
+        2000
+      ],
+      "actual": [
+        0.0,
+        1.0
+      ],
+      "violation_type": [
+        "min"
+      ]
+    },
+    "away_elo_pressure": {
+      "expected": [
+        1000,
+        2000
+      ],
+      "actual": [
+        0.0,
+        1.0
+      ],
+      "violation_type": [
+        "min"
+      ]
+    }
+  },
+  "distribution_issues": {
+    "home_goals_vs_xg_5": {
+      "mean": -10.687023185100722,
+      "std": 1.8616904089544657,
+      "skew": 0.42736521413224615,
+      "kurtosis": 10.920994639419629,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "away_goals_vs_xg_5": {
+      "mean": -10.723477697293177,
+      "std": 1.8666577546635315,
+      "skew": 0.5609795409209384,
+      "kurtosis": 11.25935499981538,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "home_ga_vs_xga_5": {
+      "mean": -10.65897331812999,
+      "std": 1.9992310868325776,
+      "skew": 0.16231102052234944,
+      "kurtosis": 11.95220906227496,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "away_ga_vs_xga_5": {
+      "mean": -10.604007472359893,
+      "std": 1.9771399953841537,
+      "skew": 0.276822405059316,
+      "kurtosis": 12.014280573810899,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "home_big_chance_conversion_5": {
+      "mean": 0.10158526880417751,
+      "std": 0.2691696259937362,
+      "skew": 3.192005591899217,
+      "kurtosis": 14.183661701928575,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "away_big_chance_conversion_5": {
+      "mean": 0.09989472988964677,
+      "std": 0.262795019561503,
+      "skew": 3.090384974727336,
+      "kurtosis": 13.509044916737857,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "home_xg_trend_10": {
+      "mean": -0.029740123456790085,
+      "std": 0.9323263316812415,
+      "skew": 0.2500921045885781,
+      "kurtosis": 11.642142464120635,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "away_xg_trend_10": {
+      "mean": 0.006349546883360142,
+      "std": 0.9494442980335254,
+      "skew": 0.013799575290969432,
+      "kurtosis": 11.771321820127719,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "home_xga_trend_10": {
+      "mean": 0.012075684989632067,
+      "std": 0.946950815157163,
+      "skew": -0.43226320935135737,
+      "kurtosis": 12.17153449305047,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "away_xga_trend_10": {
+      "mean": -0.04758161319927472,
+      "std": 0.971574264802418,
+      "skew": -0.7699681757072123,
+      "kurtosis": 13.299949993385043,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "home_outside_box_shot_pct_5": {
+      "mean": 17.87043293051325,
+      "std": 6.5080406949856595,
+      "skew": 3.129887754909163,
+      "kurtosis": 30.246610141584064,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "away_outside_box_shot_pct_5": {
+      "mean": 17.513309548296892,
+      "std": 6.277928200401311,
+      "skew": 2.395345963812627,
+      "kurtosis": 14.933723278574181,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "home_shots_per_goal_5": {
+      "mean": 5.093386807841904,
+      "std": 3.9704189901138265,
+      "skew": 3.600152472705124,
+      "kurtosis": 19.906876037904723,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "away_shots_per_goal_5": {
+      "mean": 5.051906631503314,
+      "std": 3.9743331210480504,
+      "skew": 3.9759749027698,
+      "kurtosis": 26.085428360278392,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "home_dangerous_attack_ratio_5": {
+      "mean": 1.7939978488794062,
+      "std": 9.475560378297033,
+      "skew": 6.549948808841669,
+      "kurtosis": 48.849385350391785,
+      "issues": [
+        "extreme_skew",
+        "extreme_kurtosis"
+      ]
+    },
+    "away_dangerous_attack_ratio_5": {
+      "mean": 1.7685331653484522,
+      "std": 9.35733393392212,
+      "skew": 6.638843202046316,
+      "kurtosis": 51.40970794606781,
+      "issues": [
+        "extreme_skew",
+        "extreme_kurtosis"
+      ]
+    },
+    "home_shots_per_attack_5": {
+      "mean": 1.56087599423331,
+      "std": 5.294597617405347,
+      "skew": 3.9608637913039866,
+      "kurtosis": 16.634830307491203,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "away_shots_per_attack_5": {
+      "mean": 1.5674446490925138,
+      "std": 5.304194226080309,
+      "skew": 3.9404437486482604,
+      "kurtosis": 16.40790667326971,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "home_win_streak": {
+      "mean": 0.6421088983538621,
+      "std": 1.2873249837867509,
+      "skew": 3.2784848584272157,
+      "kurtosis": 14.413495293813508,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "away_win_streak": {
+      "mean": 0.7797283296880396,
+      "std": 1.3377872779320061,
+      "skew": 3.079577234985858,
+      "kurtosis": 13.204728000848622,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "home_clean_sheet_streak": {
+      "mean": 0.3423506388856913,
+      "std": 0.7379843300923932,
+      "skew": 3.1131332041077187,
+      "kurtosis": 14.611756023908203,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "away_clean_sheet_streak": {
+      "mean": 0.40859905606078045,
+      "std": 0.7700711476115981,
+      "skew": 2.7818254691675244,
+      "kurtosis": 12.198396014785232,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "home_squad_depth_proxy": {
+      "mean": 0.4676642089571237,
+      "std": 0.0645948442105882,
+      "skew": 3.7253519754288593,
+      "kurtosis": 21.296884620075215,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "away_squad_depth_proxy": {
+      "mean": 0.46744003568547604,
+      "std": 0.06623173802055621,
+      "skew": 3.986130032961378,
+      "kurtosis": 23.700488338066794,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "home_consistency_rating": {
+      "mean": 0.4676642089571237,
+      "std": 0.0645948442105882,
+      "skew": 3.7253519754288593,
+      "kurtosis": 21.296884620075215,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "away_consistency_rating": {
+      "mean": 0.46744003568547604,
+      "std": 0.06623173802055621,
+      "skew": 3.986130032961378,
+      "kurtosis": 23.700488338066794,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    },
+    "home_days_since_last_match": {
+      "mean": 10.382352941176471,
+      "std": 42.870319935824774,
+      "skew": 35.68707062713008,
+      "kurtosis": 1864.1606632612147,
+      "issues": [
+        "extreme_skew",
+        "extreme_kurtosis"
+      ]
+    },
+    "away_days_since_last_match": {
+      "mean": 10.432600437435248,
+      "std": 43.65801474516042,
+      "skew": 32.664631424025394,
+      "kurtosis": 1478.74363229811,
+      "issues": [
+        "extreme_skew",
+        "extreme_kurtosis"
+      ]
+    },
+    "rest_advantage": {
+      "mean": -0.05024749625877748,
+      "std": 54.48085160825632,
+      "skew": 0.7673188819931606,
+      "kurtosis": 1148.3151490344512,
+      "issues": [
+        "extreme_kurtosis"
+      ]
+    }
+  },
+  "logical_inconsistencies": [],
+  "outliers": {
+    "home_in_bottom_3": {
+      "count": 3093,
+      "percentage": 17.8,
+      "bounds": [
+        0.0,
+        0.0
+      ],
+      "extreme_values": {
+        "min": 0.0,
+        "max": 1.0
+      }
+    },
+    "away_in_bottom_3": {
+      "count": 2946,
+      "percentage": 16.96,
+      "bounds": [
+        0.0,
+        0.0
+      ],
+      "extreme_values": {
+        "min": 0.0,
+        "max": 1.0
+      }
+    },
+    "home_big_chance_conversion_5": {
+      "count": 2613,
+      "percentage": 15.04,
+      "bounds": [
+        0.0,
+        0.0
+      ],
+      "extreme_values": {
+        "min": 0.0,
+        "max": 4.0
+      }
+    },
+    "away_big_chance_conversion_5": {
+      "count": 2601,
+      "percentage": 14.97,
+      "bounds": [
+        0.0,
+        0.0
+      ],
+      "extreme_values": {
+        "min": 0.0,
+        "max": 4.0
+      }
+    },
+    "home_shots_per_attack_5": {
+      "count": 1818,
+      "percentage": 10.46,
+      "bounds": [
+        0.0,
+        0.0
+      ],
+      "extreme_values": {
+        "min": 0.0,
+        "max": 44.0
+      }
+    },
+    "away_shots_per_attack_5": {
+      "count": 1821,
+      "percentage": 10.48,
+      "bounds": [
+        0.0,
+        0.0
+      ],
+      "extreme_values": {
+        "min": 0.0,
+        "max": 47.0
+      }
+    },
+    "home_clean_sheet_streak": {
+      "count": 4131,
+      "percentage": 23.78,
+      "bounds": [
+        0.0,
+        0.0
+      ],
+      "extreme_values": {
+        "min": 0.0,
+        "max": 10.0
+      }
+    },
+    "home_days_since_last_match": {
+      "count": 1623,
+      "percentage": 9.34,
+      "bounds": [
+        -1.0,
+        13.0
+      ],
+      "extreme_values": {
+        "min": 1.0,
+        "max": 3008.0
+      }
+    },
+    "home_elo_pressure": {
+      "count": 2379,
+      "percentage": 13.69,
+      "bounds": [
+        0.0,
+        0.0
+      ],
+      "extreme_values": {
+        "min": 0.0,
+        "max": 1.0
+      }
+    },
+    "away_elo_pressure": {
+      "count": 2395,
+      "percentage": 13.78,
+      "bounds": [
+        0.0,
+        0.0
+      ],
+      "extreme_values": {
+        "min": 0.0,
+        "max": 1.0
+      }
+    },
+    "home_underdog": {
+      "count": 3230,
+      "percentage": 18.59,
+      "bounds": [
+        0.0,
+        0.0
+      ],
+      "extreme_values": {
+        "min": 0.0,
+        "max": 1.0
+      }
+    },
+    "away_underdog": {
+      "count": 3149,
+      "percentage": 18.12,
+      "bounds": [
+        0.0,
+        0.0
+      ],
+      "extreme_values": {
+        "min": 0.0,
+        "max": 1.0
+      }
+    }
+  },
+  "summary": {
+    "total_samples": 17374,
+    "total_features": 150,
+    "features_with_missing": 46,
+    "features_with_range_violations": 44,
+    "features_with_distribution_issues": 29,
+    "logical_inconsistencies": 0,
+    "features_with_outliers": 12,
+    "highly_correlated_pairs": 22,
+    "health_score": 47.9
+  },
+  "high_correlations": [
+    {
+      "feature1": "home_elo",
+      "feature2": "home_elo_vs_league_avg",
+      "correlation": 0.997959790929026
+    },
+    {
+      "feature1": "home_elo",
+      "feature2": "home_lineup_quality_proxy",
+      "correlation": 1.0000000000000073
+    },
+    {
+      "feature1": "away_elo",
+      "feature2": "away_elo_vs_league_avg",
+      "correlation": 0.9979642543271255
+    },
+    {
+      "feature1": "away_elo",
+      "feature2": "away_lineup_quality_proxy",
+      "correlation": 1.0000000000000042
+    },
+    {
+      "feature1": "elo_diff",
+      "feature2": "elo_diff_with_ha",
+      "correlation": 1.0
+    },
+    {
+      "feature1": "home_elo_vs_league_avg",
+      "feature2": "home_lineup_quality_proxy",
+      "correlation": 0.997959790929024
+    },
+    {
+      "feature1": "away_elo_vs_league_avg",
+      "feature2": "away_lineup_quality_proxy",
+      "correlation": 0.9979642543271297
+    },
+    {
+      "feature1": "home_points_last_5",
+      "feature2": "home_wins_last_5",
+      "correlation": 0.9657585517340327
+    },
+    {
+      "feature1": "home_points_last_5",
+      "feature2": "home_weighted_form_5",
+      "correlation": 0.9633506704008579
+    },
+    {
+      "feature1": "home_points_last_5",
+      "feature2": "home_recent_performance",
+      "correlation": 1.0000000000000042
+    },
+    {
+      "feature1": "away_points_last_5",
+      "feature2": "away_wins_last_5",
+      "correlation": 0.9665019250928495
+    },
+    {
+      "feature1": "away_points_last_5",
+      "feature2": "away_weighted_form_5",
+      "correlation": 0.9624309422629972
+    },
+    {
+      "feature1": "away_points_last_5",
+      "feature2": "away_recent_performance",
+      "correlation": 0.9999999999999926
+    },
+    {
+      "feature1": "home_wins_last_5",
+      "feature2": "home_recent_performance",
+      "correlation": 0.9657585517340193
+    },
+    {
+      "feature1": "away_wins_last_5",
+      "feature2": "away_recent_performance",
+      "correlation": 0.9665019250928416
+    },
+    {
+      "feature1": "home_home_win_pct",
+      "feature2": "home_advantage_strength",
+      "correlation": 0.9868337982362967
+    },
+    {
+      "feature1": "home_derived_xga_per_match_5",
+      "feature2": "home_ga_vs_xga_5",
+      "correlation": -0.9561166463089361
+    },
+    {
+      "feature1": "away_derived_xga_per_match_5",
+      "feature2": "away_ga_vs_xga_5",
+      "correlation": -0.9540253071481516
+    },
+    {
+      "feature1": "home_weighted_form_5",
+      "feature2": "home_recent_performance",
+      "correlation": 0.9633506704008633
+    },
+    {
+      "feature1": "away_weighted_form_5",
+      "feature2": "away_recent_performance",
+      "correlation": 0.9624309422629949
+    },
+    {
+      "feature1": "home_squad_depth_proxy",
+      "feature2": "home_consistency_rating",
+      "correlation": 1.0
+    },
+    {
+      "feature1": "away_squad_depth_proxy",
+      "feature2": "away_consistency_rating",
+      "correlation": 1.0
+    }
+  ]
+}
