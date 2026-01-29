@@ -41,50 +41,25 @@ logger = logging.getLogger(__name__)
 class JSONToCSVConverter:
     """Convert SportMonks JSON fixtures to CSV format."""
     
-    # Statistics type mapping (SportMonks type_id to column name)
-    STAT_TYPE_MAPPING = {
-        41: 'shots_total',
-        42: 'shots_on_target',
-        43: 'shots_off_target',
-        44: 'shots_blocked',
-        45: 'shots_inside_box',
-        46: 'shots_outside_box',
-        47: 'fouls',
-        48: 'corners',
-        49: 'offsides',
-        50: 'possession',
-        51: 'yellow_cards',
-        52: 'red_cards',
-        53: 'saves',
-        54: 'substitutions',
-        55: 'goal_kicks',
-        56: 'goal_attempts',
-        57: 'free_kicks',
-        58: 'throw_ins',
-        59: 'ball_safe',
-        60: 'goals',
-        61: 'penalties',
-        62: 'injuries',
-        63: 'tackles',
-        64: 'attacks',
-        65: 'dangerous_attacks',
+    # Hardcoded fallback mapping (minimal set if file missing)
+    DEFAULT_TYPE_MAPPING = {
+        45: 'possession',
+        50: 'shots_outsidebox',
+        42: 'shots_total',
+        41: 'shots_off_target',
+        52: 'goals',
+        56: 'fouls',
         80: 'passes_total',
-        81: 'passes_accurate',
-        82: 'passes_percentage',
-        83: 'hit_woodwork',
-        84: 'goalkeeper_saves',
-        85: 'goal_line_clearances',
-        86: 'interceptions',
-        87: 'clearances',
-        88: 'dispossessed',
-        89: 'dribbles',
-        90: 'dribbles_attempts',
-        91: 'dribbles_success',
-        92: 'duels',
-        93: 'duels_won',
-        94: 'aerials_won',
     }
     
+    # Aliases to match downstream pipeline expectations
+    ALIAS_MAPPING = {
+        'ball_possession': 'possession',
+        'successful_passes_percentage': 'passes_percentage',
+        'passes': 'passes_total',
+        'goals': 'goals', # consistent
+    }
+
     # Player detail type mapping
     PLAYER_DETAIL_MAPPING = {
         88: 'rating',
@@ -119,7 +94,10 @@ class JSONToCSVConverter:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Statistics
+        # Load dynamic mapping
+        self.stat_mapping = self._load_stat_mapping()
+        
+        # Statistics counters
         self.stats = {
             'fixtures_processed': 0,
             'fixtures_with_stats': 0,
@@ -127,6 +105,31 @@ class JSONToCSVConverter:
             'fixtures_with_sidelined': 0,
             'errors': 0,
         }
+        
+    def _load_stat_mapping(self) -> Dict[int, str]:
+        """Load statistic types from reference JSON."""
+        mapping = self.DEFAULT_TYPE_MAPPING.copy()
+        
+        try:
+            ref_path = Path('data/reference/sportmonks_types.json')
+            if ref_path.exists():
+                with open(ref_path, 'r') as f:
+                    types = json.load(f)
+                    
+                for t in types:
+                    tid = t.get('id')
+                    code = t.get('code')
+                    if tid and code:
+                        # Clean code (snake_case)
+                        clean_code = code.replace('-', '_')
+                        # Apply alias if exists
+                        final_name = self.ALIAS_MAPPING.get(clean_code, clean_code)
+                        mapping[tid] = final_name
+                logger.info(f"Loaded {len(mapping)} statistic types from reference file.")
+        except Exception as e:
+            logger.warning(f"Failed to load reference types: {e}. Using defaults.")
+            
+        return mapping
     
     def _safe_get(self, data: Dict, *keys, default=None) -> Any:
         """Safely get nested dictionary values."""
@@ -250,7 +253,7 @@ class JSONToCSVConverter:
                 }
             
             # Map type_id to column name
-            stat_name = self.STAT_TYPE_MAPPING.get(type_id, f'stat_{type_id}')
+            stat_name = self.stat_mapping.get(type_id, f'stat_{type_id}')
             
             # Parse and store value
             parsed_value = self._parse_numeric(value)
@@ -322,12 +325,40 @@ class JSONToCSVConverter:
         
         return sidelined_data
     
+    def extract_standings(self, fixture: Dict) -> List[Dict]:
+        """Extract standings from participants.meta (position only)."""
+        fixture_id = fixture.get('id')
+        participants = fixture.get('participants', [])
+        
+        if not participants:
+            return []
+        
+        standings_data = []
+        
+        for participant in participants:
+            meta = participant.get('meta', {})
+            
+            # Only include if position is available
+            if meta.get('position') is not None:
+                standings_record = {
+                    'fixture_id': fixture_id,
+                    'team_id': participant.get('id'),
+                    'team_name': participant.get('name'),
+                    'location': meta.get('location'),
+                    'position': meta.get('position'),
+                }
+                standings_data.append(standings_record)
+        
+        return standings_data
+
+    
     def process_json_file(self, json_file: Path) -> tuple:
         """Process a single JSON file and extract all data."""
         fixtures_data = []
         statistics_data = []
         lineups_data = []
         sidelined_data = []
+        standings_data = []
         
         try:
             with open(json_file, 'r', encoding='utf-8') as f:
@@ -360,6 +391,11 @@ class JSONToCSVConverter:
                     if sidelined:
                         sidelined_data.extend(sidelined)
                         self.stats['fixtures_with_sidelined'] += 1
+                    
+                    # Extract standings
+                    standings = self.extract_standings(fixture)
+                    if standings:
+                        standings_data.extend(standings)
                 
                 except Exception as e:
                     logger.error(f"Error processing fixture in {json_file.name}: {e}")
@@ -369,7 +405,7 @@ class JSONToCSVConverter:
             logger.error(f"Error reading {json_file}: {e}")
             self.stats['errors'] += 1
         
-        return fixtures_data, statistics_data, lineups_data, sidelined_data
+        return fixtures_data, statistics_data, lineups_data, sidelined_data, standings_data
     
     def convert_all(self):
         """Convert all JSON files to CSV."""
@@ -395,15 +431,17 @@ class JSONToCSVConverter:
         all_statistics = []
         all_lineups = []
         all_sidelined = []
+        all_standings = []
         
         # Process each file
         for json_file in tqdm(json_files, desc="Processing JSON files"):
-            fixtures, stats, lineups, sidelined = self.process_json_file(json_file)
+            fixtures, stats, lineups, sidelined, standings = self.process_json_file(json_file)
             
             all_fixtures.extend(fixtures)
             all_statistics.extend(stats)
             all_lineups.extend(lineups)
             all_sidelined.extend(sidelined)
+            all_standings.extend(standings)
         
         # Convert to DataFrames and save
         logger.info("\nConverting to DataFrames and saving...")
@@ -411,6 +449,8 @@ class JSONToCSVConverter:
         # Fixtures
         if all_fixtures:
             df_fixtures = pd.DataFrame(all_fixtures)
+            # Deduplicate by fixture_id
+            df_fixtures = df_fixtures.drop_duplicates(subset=['fixture_id'])
             output_file = self.output_dir / 'fixtures.csv'
             df_fixtures.to_csv(output_file, index=False)
             logger.info(f"✅ Saved {len(df_fixtures):,} fixtures to {output_file}")
@@ -420,6 +460,8 @@ class JSONToCSVConverter:
         # Statistics
         if all_statistics:
             df_statistics = pd.DataFrame(all_statistics)
+            # Deduplicate by fixture_id, team_id
+            df_statistics = df_statistics.drop_duplicates(subset=['fixture_id', 'team_id'])
             output_file = self.output_dir / 'statistics.csv'
             df_statistics.to_csv(output_file, index=False)
             logger.info(f"✅ Saved {len(df_statistics):,} statistics rows to {output_file}")
@@ -429,6 +471,8 @@ class JSONToCSVConverter:
         # Lineups
         if all_lineups:
             df_lineups = pd.DataFrame(all_lineups)
+            # Deduplicate by fixture_id, player_id
+            df_lineups = df_lineups.drop_duplicates(subset=['fixture_id', 'player_id'])
             output_file = self.output_dir / 'lineups.csv'
             df_lineups.to_csv(output_file, index=False)
             logger.info(f"✅ Saved {len(df_lineups):,} lineup rows to {output_file}")
@@ -438,11 +482,25 @@ class JSONToCSVConverter:
         # Sidelined
         if all_sidelined:
             df_sidelined = pd.DataFrame(all_sidelined)
+            # Deduplicate by fixture_id, team_id, player_id
+            df_sidelined = df_sidelined.drop_duplicates(subset=['fixture_id', 'team_id', 'player_id'])
             output_file = self.output_dir / 'sidelined.csv'
             df_sidelined.to_csv(output_file, index=False)
             logger.info(f"✅ Saved {len(df_sidelined):,} sidelined rows to {output_file}")
         else:
             logger.warning("⚠️ No sidelined data to save")
+        
+        # Standings
+        if all_standings:
+            df_standings = pd.DataFrame(all_standings)
+            # Deduplicate by fixture_id, team_id
+            df_standings = df_standings.drop_duplicates(subset=['fixture_id', 'team_id'])
+            output_file = self.output_dir / 'standings.csv'
+            df_standings.to_csv(output_file, index=False)
+            logger.info(f"✅ Saved {len(df_standings):,} standings rows to {output_file}")
+        else:
+            logger.warning("⚠️ No standings data to save")
+
         
         # Print summary
         self.print_summary()

@@ -8,6 +8,7 @@ This script processes the downloaded JSON files and creates structured CSVs:
 - lineups.csv: Player lineups per match
 - events.csv: Match events (goals, cards, subs)
 - sidelined.csv: Injuries/suspensions
+- standings.csv: League positions and points (from participants.meta)
 
 Usage:
     python scripts/convert_to_csv.py
@@ -336,6 +337,72 @@ def convert_sidelined_to_csv(data_dir: Path, output_dir: Path):
     logger.info(f"✅ Saved {count} sidelined rows to {output_file}")
 
 
+def convert_standings_to_csv(data_dir: Path, output_dir: Path):
+    """Convert standings from participants.meta in fixture JSON files to CSV."""
+    logger.info("Converting standings to CSV (from participants.meta)...")
+    
+    fixtures_dir = data_dir / 'fixtures'
+    fixture_files = sorted(fixtures_dir.glob('all_fixtures_*.json'))
+    output_file = output_dir / 'standings.csv'
+    
+    count = 0
+    first_batch = True
+    
+    for fixture_file in tqdm(fixture_files, desc="Extracting standings"):
+        try:
+            with open(fixture_file, 'rb') as f:
+                fixtures_stream = ijson.items(f, 'item')
+                
+                batch_data = []
+                for fixture in fixtures_stream:
+                    fixture_id = fixture.get('id')
+                    participants = fixture.get('participants', [])
+                    
+                    if len(participants) < 2:
+                        continue
+                    
+                    # Extract standings from participants.meta
+                    for participant in participants:
+                        meta = participant.get('meta', {})
+                        
+                        # Only include if standings data is available
+                        if meta.get('position') is not None:
+                            standings_data = {
+                                'fixture_id': fixture_id,
+                                'team_id': participant.get('id'),
+                                'team_name': participant.get('name'),
+                                'location': meta.get('location'),
+                                'position': meta.get('position'),
+                                'points': meta.get('points'),
+                                'played': meta.get('played'),
+                                'wins': meta.get('wins'),
+                                'draws': meta.get('draws'),
+                                'losses': meta.get('losses'),
+                                'goals_for': meta.get('goals_for'),
+                                'goals_against': meta.get('goals_against'),
+                                'goal_difference': meta.get('goal_difference'),
+                            }
+                            batch_data.append(standings_data)
+                    
+                    if len(batch_data) >= 1000:
+                        append_to_csv(batch_data, output_file, first_batch)
+                        count += len(batch_data)
+                        first_batch = False
+                        batch_data = []
+                
+                if batch_data:
+                    append_to_csv(batch_data, output_file, first_batch)
+                    count += len(batch_data)
+                    first_batch = False
+                    
+        except Exception as e:
+            logger.error(f"Error {fixture_file.name}: {e}")
+            continue
+    
+    logger.info(f"✅ Saved {count} standings rows to {output_file}")
+
+
+
 def main():
     logger.info("=" * 80)
     logger.info("JSON TO CSV STREAMING CONVERTER (IJSON)")
@@ -353,7 +420,7 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Clean old CSVs to ensure clean write
-    for f in ['fixtures.csv', 'statistics.csv', 'lineups.csv', 'sidelined.csv']:
+    for f in ['fixtures.csv', 'statistics.csv', 'lineups.csv', 'sidelined.csv', 'standings.csv']:
         path = output_dir / f
         if path.exists():
             path.unlink()
@@ -362,6 +429,7 @@ def main():
     convert_statistics_to_csv(data_dir, output_dir)
     convert_lineups_to_csv(data_dir, output_dir)
     convert_sidelined_to_csv(data_dir, output_dir)
+    convert_standings_to_csv(data_dir, output_dir)  # NEW: Convert standings
     
     logger.info("\nCONVERSION COMPLETE")
 

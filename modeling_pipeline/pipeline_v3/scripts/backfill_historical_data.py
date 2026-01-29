@@ -58,6 +58,7 @@ class HistoricalDataBackfill:
         (self.output_dir / 'statistics').mkdir(exist_ok=True)
         (self.output_dir / 'lineups').mkdir(exist_ok=True)
         (self.output_dir / 'sidelined').mkdir(exist_ok=True)
+        (self.output_dir / 'standings').mkdir(exist_ok=True)  # NEW: For standings data
         
         logger.info(f"Initialized backfill with output directory: {self.output_dir}")
     
@@ -390,6 +391,7 @@ class HistoricalDataBackfill:
         
         stats_count = 0
         lineups_count = 0
+        standings_count = 0  # NEW: Track standings
         
         for fixture in tqdm(fixtures, desc="Extracting Data"):
             fixture_id = fixture.get('id')
@@ -412,10 +414,40 @@ class HistoricalDataBackfill:
                     output_file = self.output_dir / 'lineups' / f'fixture_{fixture_id}.json'
                     with open(output_file, 'w') as f:
                         json.dump(lineups, f, indent=2)
+            
+            # NEW: Extract and save standings from participants.meta
+            participants = fixture.get('participants', [])
+            if participants:
+                standings_data = []
+                for participant in participants:
+                    meta = participant.get('meta', {})
+                    if meta.get('position') is not None:  # Has standings data
+                        standings_data.append({
+                            'fixture_id': fixture_id,
+                            'team_id': participant.get('id'),
+                            'team_name': participant.get('name'),
+                            'location': meta.get('location'),
+                            'position': meta.get('position'),
+                            'points': meta.get('points'),
+                            'played': meta.get('played'),
+                            'wins': meta.get('wins'),
+                            'draws': meta.get('draws'),
+                            'losses': meta.get('losses'),
+                            'goals_for': meta.get('goals_for'),
+                            'goals_against': meta.get('goals_against'),
+                            'goal_difference': meta.get('goal_difference'),
+                        })
+                
+                if standings_data:
+                    standings_count += 1
+                    output_file = self.output_dir / 'standings' / f'fixture_{fixture_id}.json'
+                    with open(output_file, 'w') as f:
+                        json.dump(standings_data, f, indent=2)
         
         logger.info(f"Extracted statistics for {stats_count} fixtures")
         if include_lineups:
             logger.info(f"Extracted lineups for {lineups_count} fixtures")
+        logger.info(f"Extracted standings for {standings_count} fixtures")  # NEW
         
         # Step 3: Download sidelined players (optional)
         if include_sidelined:
@@ -433,6 +465,7 @@ class HistoricalDataBackfill:
         logger.info(f"Statistics: {stats_count}")
         if include_lineups:
             logger.info(f"Lineups: {lineups_count}")
+        logger.info(f"Standings: {standings_count}")  # NEW
         if include_sidelined:
             logger.info(f"Sidelined data: {len(sidelined)} teams")
         logger.info(f"Output directory: {self.output_dir}")
