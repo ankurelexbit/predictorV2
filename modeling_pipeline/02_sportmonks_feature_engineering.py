@@ -512,46 +512,111 @@ def add_sidelined_features(df, sidelined):
     return df
 
 
-def add_standings_features(df, standings):
-    """Add league position and points features."""
-    logger.info("Adding standings features...")
-
-    # Create season-team lookup
-    standings_lookup = {}
-    for _, row in standings.iterrows():
-        key = (row['season_id'], row['team_id'])
-        standings_lookup[key] = {
-            'position': row['position'],
-            'points': row['points'],
-            'played': row['played']
+def add_standings_features(df, fixtures_df):
+    """Add league position and points features using point-in-time calculation.
+    
+    FIXED: No longer uses season-level standings (data leakage).
+    Now calculates standings dynamically for each match using only past results.
+    
+    Args:
+        df: DataFrame with match data
+        fixtures_df: DataFrame with all fixtures for standings calculation
+    
+    Returns:
+        DataFrame with standings features added
+    """
+    logger.info("Adding standings features (point-in-time calculation)...")
+    
+    from standings_calculator import StandingsCalculator
+    
+    # Sort by date for chronological processing
+    df = df.sort_values('date').reset_index(drop=True)
+    
+    # Prepare fixtures list for StandingsCalculator
+    # V3's calculator expects fixtures in a specific format
+    fixtures_list = []
+    for _, row in fixtures_df.iterrows():
+        # Convert to format expected by StandingsCalculator
+        # Note: V3 expects nested structure with 'state' dict and 'participants'
+        fixture_dict = {
+            'fixture_id': row.get('fixture_id'),
+            'season_id': row.get('season_id'),
+            'league_id': row.get('league_id'),
+            'starting_at': str(row.get('date')),  # Convert to string ISO format
+            'state': {'state': 'FT'},  # V3 expects nested dict
+            'participants': [
+                {
+                    'id': row.get('home_team_id'),
+                    'meta': {'location': 'home'}
+                },
+                {
+                    'id': row.get('away_team_id'),
+                    'meta': {'location': 'away'}
+                }
+            ],
+            'scores': [
+                {
+                    'description': 'CURRENT',
+                    'score': {
+                        'participant': 'home',
+                        'goals': row.get('home_goals', 0)
+                    }
+                },
+                {
+                    'description': 'CURRENT',
+                    'score': {
+                        'participant': 'away',
+                        'goals': row.get('away_goals', 0)
+                    }
+                }
+            ]
         }
-
-    # Add to fixtures
+        fixtures_list.append(fixture_dict)
+    
+    # Initialize standings calculator (V3's __init__ takes no arguments)
+    standings_calc = StandingsCalculator()
+    
+    # Calculate standings for each match
     home_positions = []
     away_positions = []
     home_points = []
     away_points = []
-
-    for _, row in df.iterrows():
+    
+    for idx, row in df.iterrows():
         season_id = row['season_id']
-        home_key = (season_id, row['home_team_id'])
-        away_key = (season_id, row['away_team_id'])
-
-        home_data = standings_lookup.get(home_key, {})
-        away_data = standings_lookup.get(away_key, {})
-
+        league_id = row['league_id']
+        match_date = row['date']
+        home_team = row['home_team_id']
+        away_team = row['away_team_id']
+        
+        # Calculate standings AS OF this match date (only using past results)
+        # V3's API: calculate_standings_at_date(fixtures, season_id, league_id, as_of_date)
+        standings = standings_calc.calculate_standings_at_date(
+            fixtures=fixtures_list,
+            season_id=season_id,
+            league_id=league_id,
+            as_of_date=match_date
+        )
+        
+        # Get team data from standings
+        home_data = standings.get(home_team, {})
+        away_data = standings.get(away_team, {})
+        
         home_positions.append(home_data.get('position', np.nan))
         away_positions.append(away_data.get('position', np.nan))
         home_points.append(home_data.get('points', np.nan))
         away_points.append(away_data.get('points', np.nan))
-
+    
+    # Add to dataframe
     df['home_position'] = home_positions
     df['away_position'] = away_positions
     df['home_points'] = home_points
     df['away_points'] = away_points
     df['position_diff'] = df['away_position'] - df['home_position']  # Positive = home team ranked higher
     df['points_diff'] = df['home_points'] - df['away_points']
-
+    
+    logger.info(f"  Calculated point-in-time standings for {len(df)} matches")
+    
     return df
 
 
@@ -1049,8 +1114,8 @@ def main():
     # Add sidelined features
     df = add_sidelined_features(df, sidelined)
 
-    # Add standings features
-    df = add_standings_features(df, standings)
+    # Add standings features (using point-in-time calculation from fixtures)
+    df = add_standings_features(df, fixtures)
 
     # Add market features
     df = add_market_features(df)

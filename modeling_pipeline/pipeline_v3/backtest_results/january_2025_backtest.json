@@ -1,0 +1,50 @@
+{
+  "period": "January 2025",
+  "total_matches": 185,
+  "total_bets": 118,
+  "wins": 67,
+  "win_rate": 56.779661016949156,
+  "total_staked": 11800,
+  "total_return": 16500.0,
+  "total_profit": 4700.0,
+  "roi": 39.83050847457627,
+  "outcome_stats": {
+    "Home": {
+      "bets": 61,
+      "wins": 36,
+      "win_rate": 59.01639344262295,
+      "staked": 6100,
+      "return": 7200.0,
+      "profit": 1100.0,
+      "roi": 18.0327868852459
+    },
+    "Draw": {
+      "bets": 3,
+      "wins": 0,
+      "win_rate": 0.0,
+      "staked": 300,
+      "return": 0,
+      "profit": -300,
+      "roi": -100.0
+    },
+    "Away": {
+      "bets": 54,
+      "wins": 31,
+      "win_rate": 57.407407407407405,
+      "staked": 5400,
+      "return": 9300.0,
+      "profit": 3900.0,
+      "roi": 72.22222222222221
+    }
+  },
+  "thresholds_used": {
+    "home": 0.4,
+    "draw": 0.5,
+    "away": 0.45
+  },
+  "typical_odds_used": {
+    "home": 2.0,
+    "draw": 3.5,
+    "away": 3.0
+  }
+}

@@ -36,6 +36,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+from sklearn.impute import SimpleImputer
+
 class EnsembleModel:
     """Ensemble of XGBoost, LightGBM, and Neural Network."""
     
@@ -69,6 +71,7 @@ class EnsembleModel:
         self.xgb_model = None
         self.lgb_model = None
         self.nn_model = None
+        self.imputer = None
         
         logger.info(f"Ensemble weights: XGB={self.xgb_weight:.2f}, "
                    f"LGB={self.lgb_weight:.2f}, NN={self.nn_weight:.2f}")
@@ -118,6 +121,10 @@ class EnsembleModel:
         
         # Train Neural Network
         logger.info("\n3. Training Neural Network...")
+        # Impute missing values for NN
+        self.imputer = SimpleImputer(strategy='mean')
+        X_train_imputed = self.imputer.fit_transform(X_train)
+        
         self.nn_model = MLPClassifier(
             hidden_layer_sizes=(128, 64, 32),
             activation='relu',
@@ -129,7 +136,7 @@ class EnsembleModel:
             random_state=42,
             verbose=False
         )
-        self.nn_model.fit(X_train, y_train)
+        self.nn_model.fit(X_train_imputed, y_train)
         
         # Calibrate if requested
         if self.calibrate and X_val is not None and y_val is not None:
@@ -153,10 +160,12 @@ class EnsembleModel:
         self.lgb_model.fit(X_val, y_val)
         
         logger.info("Calibrating Neural Network...")
+        # Use imputed data for NN calibration
+        X_val_imputed = self.imputer.transform(X_val)
         self.nn_model = CalibratedClassifierCV(
             self.nn_model, method='isotonic', cv='prefit'
         )
-        self.nn_model.fit(X_val, y_val)
+        self.nn_model.fit(X_val_imputed, y_val)
     
     def predict_proba(self, X):
         """
@@ -171,7 +180,10 @@ class EnsembleModel:
         # Get predictions from each model
         xgb_pred = self.xgb_model.predict_proba(X)
         lgb_pred = self.lgb_model.predict_proba(X)
-        nn_pred = self.nn_model.predict_proba(X)
+        
+        # Impute for NN
+        X_imputed = self.imputer.transform(X)
+        nn_pred = self.nn_model.predict_proba(X_imputed)
         
         # Weighted average
         ensemble_pred = (
@@ -196,7 +208,11 @@ class EnsembleModel:
         # Individual model predictions
         xgb_pred = self.xgb_model.predict_proba(X)
         lgb_pred = self.lgb_model.predict_proba(X)
-        nn_pred = self.nn_model.predict_proba(X)
+        
+        # Impute for NN evaluation
+        X_imputed = self.imputer.transform(X)
+        nn_pred = self.nn_model.predict_proba(X_imputed)
+        
         ensemble_pred = self.predict_proba(X)
         
         # Calculate log loss
@@ -221,7 +237,7 @@ class EnsembleModel:
 def main():
     """Main ensemble training pipeline."""
     # Paths
-    data_path = Path(__file__).parent.parent / 'data' / 'processed' / 'training_data.csv'
+    data_path = Path(__file__).parent.parent / 'data' / 'csv' / 'training_data_complete_v2.csv'
     models_dir = Path(__file__).parent.parent / 'models'
     models_dir.mkdir(exist_ok=True)
     
@@ -236,6 +252,12 @@ def main():
     
     X = df[feature_cols]
     y = df[target_col]
+    
+    # Map target to integers: Away=0, Draw=1, Home=2
+    target_map = {'A': 0, 'D': 1, 'H': 2}
+    if y.dtype == 'object':
+        logger.info("Mapping target labels to integers (A=0, D=1, H=2)")
+        y = y.map(target_map)
     
     logger.info(f"Loaded {len(df)} samples with {len(feature_cols)} features")
     

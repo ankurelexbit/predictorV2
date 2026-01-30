@@ -1,0 +1,33 @@
+{
+  "league_thresholds": {
+    "8": {
+      "name": "Premier League",
+      "thresholds": {
+        "home": 0.4,
+        "draw": 0.5,
+        "away": 0.45
+      }
+    },
+    "564": {
+      "name": "Championship",
+      "thresholds": {
+        "home": 0.35,
+        "draw": 0.4,
+        "away": 0.5
+      }
+    }
+  },
+  "default_thresholds": {
+    "home": 0.48,
+    "draw": 0.35,
+    "away": 0.45
+  },
+  "backtest_results": {
+    "period": "January 2025",
+    "total_profit": 155.4669266728099,
+    "total_bets": 52,
+    "total_wins": 28,
+    "roi": 2.989748589861729,
+    "win_rate": 53.84615384615385
+  }
+}

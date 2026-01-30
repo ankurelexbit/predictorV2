@@ -1,0 +1,8 @@
+{
+  "league_thresholds": {},
+  "default_thresholds": {
+    "home": 0.48,
+    "draw": 0.35,
+    "away": 0.45
+  }
+}

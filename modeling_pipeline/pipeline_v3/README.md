@@ -17,19 +17,110 @@
 
 ## 🎯 Overview
 
-This is a complete football match prediction system that:
-- Downloads historical data from SportMonks API
-- Engineers 296 features across 8 categories
-- Trains ensemble models (XGBoost + LightGBM + Neural Network)
+This is a production-ready football match prediction system that:
+- Downloads historical data from SportMonks API (2015-2026)
+- Engineers 159 features across multiple categories (Elo, xG, form, standings, etc.)
+- Trains XGBoost model with hyperparameter tuning
 - Provides live predictions for upcoming matches
-- Achieves **0.915-0.923 log loss** (target)
+- Achieves **~0.986 log loss** on future data (2025+)
 
 ### Key Features
-- ✅ **296 engineered features** (optimized to ~200)
-- ✅ **Injury-aware predictions** (handles missing key players)
-- ✅ **No player database needed** (team-level aggregates)
-- ✅ **Live prediction compatible** (all features available)
-- ✅ **Data leakage prevention** (temporal cutoffs enforced)
+- ✅ **159 engineered features** (optimized from 187 raw features)
+- ✅ **Time-based validation** (prevents data leakage)
+- ✅ **Hyperparameter tuning** (Optuna-based optimization)
+- ✅ **Point-in-time standings** (no future information leakage)
+- ✅ **Production-ready** (verified on 17,943 matches, 10 years of data)
+
+### Performance Summary
+- **Test Log Loss (2025+):** 0.9858
+- **Test Accuracy:** 53.7%
+- **Improvement over V2:** ~2.4% (V2: 1.004 log loss)
+- **Top Features:** Elo difference, points difference, derived xG matchup
+
+---
+
+## 🚀 Quick Start (End-to-End)
+
+### Prerequisites
+- Python 3.11+
+- SportMonks API key (Enterprise subscription)
+- 8GB+ RAM, ~2GB disk space
+
+### Step 1: Setup
+
+```bash
+cd /Users/ankurgupta/code/predictorV2/modeling_pipeline/pipeline_v3
+
+# Install dependencies
+pip install pandas numpy scikit-learn xgboost lightgbm joblib tqdm python-dotenv requests
+
+# Configure API
+echo "SPORTMONKS_API_KEY=your_key_here" > .env
+```
+
+### Step 2: Collect Data (if needed)
+
+> **Note:** If you already have `data/csv/training_data_complete_v2.csv`, skip to Step 3.
+
+**Option A: Quick Setup (if data exists)**
+```bash
+# Just verify you have the training data
+ls -lh data/csv/training_data_complete_v2.csv
+```
+
+**Option B: Full Pipeline (from scratch)**
+
+See [Complete Data Pipeline](#-complete-data-pipeline-detailed) section below for detailed steps. Quick summary:
+
+```bash
+# 1. Download historical data (30-60 min)
+python3 scripts/backfill_historical_data.py \
+    --leagues 8 39 140 78 135 61 62 564 \
+    --start-season 2015 --end-season 2026
+
+# 2. Convert database to CSV (1-2 min)
+python3 scripts/convert_to_csv.py
+
+# 3. Validate data quality (optional)
+python3 scripts/validate_data.py
+
+# 4. Generate training features (2-5 min)
+python3 scripts/generate_training_features.py
+
+# 5. Validate features (optional)
+python3 scripts/validate_training_data_v2.py
+```
+
+**Output:** `data/csv/training_data_complete_v2.csv` (17,943 matches, 187 columns)
+
+### Step 3: Train Model
+
+```bash
+# Train XGBoost with hyperparameter tuning (recommended)
+python3 scripts/03_train_xgboost.py --tune --n-trials 30
+```
+
+**Expected Results:**
+- Test Log Loss: ~0.986
+- Test Accuracy: ~53.7%
+- Model saved to: `models/xgboost_model.joblib`
+
+### Step 4: Make Predictions
+
+```python
+import joblib
+import pandas as pd
+
+# Load model
+model = joblib.load('models/xgboost_model.joblib')
+
+# Load your match data
+match_features = pd.read_csv('your_match_features.csv')
+
+# Predict
+probs = model.predict_proba(match_features)
+print(f"Home: {probs[0][2]:.1%}, Draw: {probs[0][1]:.1%}, Away: {probs[0][0]:.1%}")
+```
 
 ---
 
@@ -37,17 +128,77 @@ This is a complete football match prediction system that:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    DATA PIPELINE                             │
+│                  STAGE 1: DATA COLLECTION                    │
 ├─────────────────────────────────────────────────────────────┤
-│  SportMonks API → SQLite Database → CSV Export              │
-│  (fixtures, lineups, events, formations, odds, injuries,    │
-│   standings from participants.meta)                         │
+│  SportMonks API → SQLite Database (football.db)             │
+│  - backfill_historical_data.py                              │
+│  - Downloads: fixtures, lineups, statistics, standings,     │
+│    sidelined players (2015-2026, 8 leagues)                 │
+│  - Time: ~30-60 minutes                                     │
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
-│                 FEATURE ENGINEERING                          │
+│                  STAGE 2: CSV CONVERSION                     │
 ├─────────────────────────────────────────────────────────────┤
-│  Phase 1: Player Statistics (49 features)                   │
+│  SQLite → CSV Files (data/csv/)                             │
+│  - convert_to_csv.py                                        │
+│  - Creates: fixtures.csv, lineups.csv, statistics.csv,     │
+│    standings.csv, sidelined.csv                             │
+│  - Time: ~1-2 minutes                                       │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│                  STAGE 3: VALIDATION (Optional)              │
+├─────────────────────────────────────────────────────────────┤
+│  Data Quality Checks                                        │
+│  - validate_data.py                                         │
+│  - validate_features_data.py                                │
+│  - Checks: duplicates, nulls, date ranges, FK integrity     │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│                  STAGE 4: FEATURE ENGINEERING                │
+├─────────────────────────────────────────────────────────────┤
+│  CSV Files → Training Dataset                               │
+│  - generate_training_features.py                            │
+│  - Creates 159 features: Elo, form, standings, xG, H2H      │
+│  - Output: training_data_complete_v2.csv (17,943 matches)   │
+│  - Time: ~2-5 minutes                                       │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│                  STAGE 5: MODEL TRAINING                     │
+├─────────────────────────────────────────────────────────────┤
+│  XGBoost with Hyperparameter Tuning                         │
+│  - 03_train_xgboost.py --tune --n-trials 30                 │
+│  - Time-based split: Train<2024, Val=2024, Test≥2025        │
+│  - Optuna optimization (30 trials)                          │
+│  - Isotonic calibration                                     │
+│  - Output: models/xgboost_model.joblib                      │
+│  - Performance: 0.9858 log loss, 53.7% accuracy             │
+│  - Time: ~2-3 minutes                                       │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│                  STAGE 6: PREDICTION                         │
+├─────────────────────────────────────────────────────────────┤
+│  Load Model → Generate Features → Predict                   │
+│  - For live predictions, repeat feature engineering         │
+│    for upcoming fixtures                                    │
+│  - Output: Home/Draw/Away probabilities                     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Pipeline Summary
+
+| Stage | Script | Input | Output | Time |
+|:------|:-------|:------|:-------|:-----|
+| 1. Data Collection | `backfill_historical_data.py` | SportMonks API | `football.db` | 30-60 min |
+| 2. CSV Export | `convert_to_csv.py` | `football.db` | CSV files | 1-2 min |
+| 3. Validation | `validate_data.py` | CSV files | Validation report | 1 min |
+| 4. Feature Gen | `generate_training_features.py` | CSV files | `training_data_complete_v2.csv` | 2-5 min |
+| 5. Training | `03_train_xgboost.py --tune` | Training data | `xgboost_model.joblib` | 2-3 min |
+| **Total** | | | | **~40-75 min** |
 │  Phase 2: Match Events (32 features)                        │
 │  Phase 3: Formations (12 features)                          │
 │  Phase 4: Injuries (16 features) ⭐                         │
@@ -163,35 +314,201 @@ print('✅ Installation successful!')
 
 ---
 
-## 📊 Data Pipeline
+## 📊 Complete Data Pipeline (Detailed)
 
 ### Overview
 
-The data pipeline downloads historical data from SportMonks API and stores it in SQLite database, then exports to CSV for feature engineering.
+The V3 pipeline uses a multi-stage approach:
+1. **Database Setup** → Create SQLite schema
+2. **Data Collection** → Download from SportMonks API
+3. **CSV Export** → Convert database to CSV files
+4. **Validation** → Verify data quality
+5. **Feature Generation** → Create training dataset
 
-### Step 1: Initialize Database
+### Stage 1: Database Initialization
 
 ```bash
-# Create database schema
-python3 scripts/init_database.py
+# Create SQLite database with proper schema
+python3 scripts/create_database.sql
 ```
 
-**Output:**
-- `data/football.db` - SQLite database with tables:
-  - `fixtures`
-  - `lineups`
-  - `events`
-  - `formations`
-  - `odds`
-  - `sidelined`
-  - `standings`
+**Creates:** `data/football.db` with tables:
+- `fixtures` - Match results and metadata
+- `lineups` - Player lineups per match
+- `events` - Goals, cards, substitutions
+- `statistics` - Team statistics per match
+- `sidelined` - Injured/suspended players
+- `standings` - League standings (from participants.meta)
 
-### Step 2: Download Historical Data
+### Stage 2: Historical Data Collection
 
 ```bash
-# Download data for specific leagues and seasons
+# Download historical data from SportMonks API
 python3 scripts/backfill_historical_data.py \
-    --leagues 8 \
+    --leagues 8 39 140 78 135 61 62 564 \
+    --start-season 2015 \
+    --end-season 2026
+```
+
+**Leagues:**
+- 8: Premier League
+- 39: La Liga
+- 140: Serie A
+- 78: Bundesliga
+- 135: Ligue 1
+- 61: Eredivisie
+- 62: Primeira Liga
+- 564: Championship
+
+**What it does:**
+1. Fetches fixtures for each league/season
+2. For each fixture, downloads:
+   - Lineup data
+   - Match events
+   - Team statistics
+   - Sidelined players
+   - Standings (from `participants.meta`)
+3. Stores in SQLite database
+4. Progress saved (can resume if interrupted)
+
+**Time:** ~30-60 minutes (API rate limits)
+
+### Stage 3: Database to CSV Conversion
+
+```bash
+# Convert SQLite database to CSV files
+python3 scripts/convert_to_csv.py
+```
+
+**Creates CSV files in `data/csv/`:**
+- `fixtures.csv` (~7MB, 25,000+ rows)
+- `lineups.csv` (~114MB, player-level data)
+- `statistics.csv` (~6.6MB, team stats per match)
+- `standings.csv` (~425KB, point-in-time standings)
+- `sidelined.csv` (~1.8MB, injuries/suspensions)
+
+**Why CSV?** Easier to inspect, version control, and process with pandas.
+
+### Stage 4: Data Validation
+
+```bash
+# Validate CSV data quality
+python3 scripts/validate_data.py
+```
+
+**Checks:**
+- ✅ Required columns present
+- ✅ No duplicate fixtures
+- ✅ Date ranges correct
+- ✅ Foreign key integrity
+- ✅ Null value analysis
+- ✅ Standings coverage
+
+**Output:** `validation_report.json` with data quality metrics
+
+**Alternative validation scripts:**
+```bash
+# Validate feature data specifically
+python3 scripts/validate_features_data.py
+
+# Validate training data
+python3 scripts/validate_training_data_v2.py
+```
+
+### Stage 5: Feature Generation
+
+```bash
+# Generate training features from CSV files
+python3 scripts/generate_training_features.py
+```
+
+**What it does:**
+1. Loads all CSV files
+2. For each fixture, calculates:
+   - **Elo ratings** (home, away, difference, with HA)
+   - **Form metrics** (last 3, 5, 10 matches)
+   - **Standings** (position, points - point-in-time)
+   - **xG metrics** (derived from shots, big chances)
+   - **Head-to-head** (last 5 meetings)
+   - **Player availability** (sidelined count)
+   - **Team statistics** (possession, passing, shots)
+3. Drops matches without sufficient history
+4. Creates target variable (H/D/A)
+
+**Output:** `data/csv/training_data_complete_v2.csv`
+- **Rows:** 17,943 matches
+- **Columns:** 187 (159 features + metadata + target)
+- **Size:** ~27MB
+
+**Time:** ~2-5 minutes
+
+### Stage 6: Feature Validation (Optional)
+
+```bash
+# Analyze feature quality
+python3 scripts/validate_features.py \
+    --input data/csv/training_data_complete_v2.csv \
+    --output validation_report_complete.json
+```
+
+**Checks:**
+- Missing value analysis
+- Feature range validation
+- Distribution analysis
+- Outlier detection
+- Correlation analysis
+
+**Output:** Detailed validation report with health score
+
+---
+
+## 🔍 Data Quality Checks
+
+### Quick Verification
+
+```bash
+# Check data completeness
+python3 << 'EOF'
+import pandas as pd
+
+# Load training data
+df = pd.read_csv('data/csv/training_data_complete_v2.csv')
+
+print(f"Total matches: {len(df):,}")
+print(f"Total features: {len(df.columns):,}")
+print(f"Date range: {df['starting_at'].min()} to {df['starting_at'].max()}")
+print(f"\nTarget distribution:")
+print(df['result'].value_counts())
+print(f"\nMissing values:")
+print(df.isnull().sum().sum())
+EOF
+```
+
+**Expected Output:**
+```
+Total matches: 17,943
+Total features: 187
+Date range: 2016-01-02 12:45:00 to 2025-12-30 20:15:00
+
+Target distribution:
+H    7933
+A    5529
+D    4481
+
+Missing values: (varies by feature)
+```
+
+### Standings Coverage Check
+
+```bash
+# Verify point-in-time standings
+python3 scripts/compare_standings_coverage.py
+```
+
+**Verifies:**
+- Standings are point-in-time (no future leakage)
+- Coverage % per league/season
+- Identifies missing standings data
     --seasons 2016-2024 \
     --batch-size 100
 ```
@@ -479,100 +796,100 @@ Training data is ready for model training
 
 ## 🤖 Model Training
 
-### Phase 7: Feature Selection
+### Recommended: XGBoost with Hyperparameter Tuning
+
+Based on extensive testing, **standalone XGBoost with hyperparameter tuning** provides the best performance (0.9858 log loss on 2025+ data).
 
 ```bash
-# Optimize features (296 → ~200)
-python3 scripts/train_with_feature_selection.py
+# Train with hyperparameter tuning (30 trials, ~2-3 minutes)
+python3 scripts/03_train_xgboost.py --tune --n-trials 30
 ```
 
-**Process:**
-1. **Correlation Analysis**
-   - Remove features with correlation > 0.95
-   - Keeps first feature from each pair
+**What it does:**
+1. Loads `data/csv/training_data_complete_v2.csv`
+2. **Time-based split:** Train < 2024, Val = 2024, Test ≥ 2025
+3. Drops constant columns and data leakage features
+4. Runs Optuna hyperparameter search (30 trials)
+5. Trains final model with best parameters
+6. Calibrates probabilities using isotonic regression
+7. Evaluates on test set (2025+)
 
-2. **Feature Importance**
-   - Train XGBoost model
-   - Remove features with importance < 0.001
-
-3. **Recursive Feature Elimination**
-   - Cross-validation (5-fold)
-   - Find optimal subset
-   - Target: ~200 features
-
-**Output:**
-```
-Original features: 296
-After correlation filter: 267 features
-After importance filter: 223 features
-After RFE: 198 features
-
-✅ Final feature count: 198
-```
-
-**Files created:**
-- `models/feature_selector.pkl` - Selector for production
-- `models/feature_importance.csv` - Importance report
-- `models/xgboost_selected.pkl` - Optimized model
-
-**Top features (example):**
-```
-Feature                                          Importance
-home_elo                                         0.082341
-away_elo                                         0.078923
-home_rating_avg_5                                0.045123
-home_key_players_missing                         0.038456
-bookmaker_home_win_prob                          0.035789
-home_form_5                                      0.032145
-...
-```
-
-### Phase 8: Ensemble Model
-
-```bash
-# Train ensemble (XGBoost + LightGBM + NN)
-python3 scripts/train_ensemble_model.py
-```
-
-**Models:**
-1. **XGBoost (60% weight)**
-   ```python
-   XGBClassifier(
-       n_estimators=500,
-       max_depth=6,
-       learning_rate=0.05,
-       subsample=0.8,
-       colsample_bytree=0.8
-   )
-   ```
-
-2. **LightGBM (30% weight)**
-   ```python
-   LGBMClassifier(
-       n_estimators=500,
-       max_depth=6,
-       learning_rate=0.05,
-       num_leaves=31
-   )
-   ```
-
-3. **Neural Network (10% weight)**
-   ```python
-   MLPClassifier(
-       hidden_layer_sizes=(128, 64, 32),
-       activation='relu',
-       solver='adam',
-       max_iter=500
-   )
-   ```
-
-**Ensemble prediction:**
+**Best Hyperparameters Found:**
 ```python
-final_pred = (
-    0.60 * xgb_pred +
-    0.30 * lgb_pred +
-    0.10 * nn_pred
-)
+{
+    'max_depth': 8,
+    'learning_rate': 0.03,
+    'subsample': 0.9,
+    'colsample_bytree': 0.6,
+    'min_child_weight': 3,
+    'gamma': 0.5,
+    'reg_alpha': 1.0,
+    'reg_lambda': 2.0
+}
+```
+
+**Expected Output:**
+```
+FINAL TEST SET EVALUATION (2025)
+Test Log Loss:       0.9858
+Test Accuracy:       53.7%
+
+Top 15 Features:
+  elo_diff                           17.5
+  elo_diff_with_home_advantage       16.3
+  points_diff                         5.9
+  derived_xgd_matchup                 4.4
+  ...
+
+Model saved to: models/xgboost_model.joblib
+```
+
+### Alternative: Train Without Tuning (Faster)
+
+```bash
+# Use default hyperparameters (~30 seconds)
+python3 scripts/03_train_xgboost.py
+```
+
+**Performance:** ~1.036 log loss (slightly worse than tuned)
+
+### Not Recommended: Ensemble Model
+
+Our testing shows the ensemble (XGBoost + LightGBM + Neural Network) performs **worse** than standalone XGBoost:
+- **Ensemble:** 1.0103 log loss
+- **XGBoost (tuned):** 0.9858 log loss ✅ **Better**
+
+The Neural Network (1.0438 log loss) drags down the ensemble performance.
+
+---
+
+## 📈 Performance Benchmarks
+
+### Test Set Performance (2025+ Data)
+
+| Model | Log Loss | Accuracy | Notes |
+|:------|:---------|:---------|:------|
+| **XGBoost (tuned)** | **0.9858** | 53.7% | ✅ **Recommended** |
+| XGBoost (default) | 1.0360 | 45.9% | Faster but worse |
+| Ensemble (XGB+LGB+NN) | 1.0103 | 53.0% | More complex, worse performance |
+| V2 (fixed, no leakage) | 1.0043 | 51.1% | Previous version |
+
+### Feature Importance (Top 10)
+
+| Feature | Importance | Category |
+|:--------|:-----------|:---------|
+| `elo_diff` | 17.5 | Elo Rating |
+| `elo_diff_with_home_advantage` | 16.3 | Elo Rating |
+| `points_diff` | 5.9 | Standings |
+| `derived_xgd_matchup` | 4.4 | xG Metrics |
+| `away_elo` | 4.1 | Elo Rating |
+| `home_elo_vs_league_avg` | 3.9 | Elo Rating |
+| `away_elo_vs_league_avg` | 3.7 | Elo Rating |
+| `position_diff` | 3.6 | Standings |
+| `home_elo` | 3.5 | Elo Rating |
+| `away_pass_accuracy_5` | 3.4 | Team Stats |
+
+**Key Insight:** Elo ratings dominate (50%+ of importance), followed by standings and xG metrics. No data leakage detected.
 ```
 
 **Calibration:**
@@ -584,34 +901,7 @@ calibrated = CalibratedClassifierCV(
 ```
 
 **Output:**
-```
-Training Ensemble Models
-========================
-1. Training XGBoost...
-   Train Log Loss: 0.8234
-   Val Log Loss: 0.9123
 
-2. Training LightGBM...
-   Train Log Loss: 0.8456
-   Val Log Loss: 0.9234
-
-3. Training Neural Network...
-   Train Log Loss: 0.8789
-   Val Log Loss: 0.9456
-
-4. Calibrating probabilities...
-
-FINAL RESULTS
-=============
-XGBoost Log Loss:     0.9123
-LightGBM Log Loss:    0.9234
-Neural Net Log Loss:  0.9456
-Ensemble Log Loss:    0.9087
-
-Ensemble Improvement: 0.0036
-
-✅ Ensemble training complete!
-```
 
 **Files created:**
 - `models/ensemble_model.pkl` - Production model

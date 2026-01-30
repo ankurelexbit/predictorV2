@@ -110,9 +110,10 @@ def main():
     parser.add_argument('--n-trials', type=int, default=20, help="Number of tuning trials")
     args = parser.parse_args()
     
-    data_path = 'data/csv/training_data_complete_v3_expanded.csv'
+    # Locate data relative to script location
+    data_path = Path(__file__).parent.parent / 'data' / 'csv' / 'training_data_complete_v2.csv'
     
-    if not os.path.exists(data_path):
+    if not data_path.exists():
         logger.error(f"Data file not found: {data_path}")
         return
     
@@ -126,8 +127,8 @@ def main():
         logger.info(f"Dropping {len(zero_var_cols)} constant columns: {zero_var_cols}")
         df.drop(columns=zero_var_cols, inplace=True)
 
-    # 1c. Drop Data Leakage Columns (Targets)
-    leakage_cols = ['target_home_win', 'target_draw', 'target_away_win', 'result']
+    # 1c. Drop Data Leakage Columns (Targets & Scores)
+    leakage_cols = ['target_home_win', 'target_draw', 'target_away_win', 'result', 'home_score', 'away_score']
     to_drop = [c for c in leakage_cols if c in df.columns]
     if to_drop:
         logger.info(f"Dropping {len(to_drop)} leakage columns: {to_drop}")

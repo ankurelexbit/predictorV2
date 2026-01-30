@@ -1,0 +1,41 @@
+{
+  "thresholds": {
+    "home": 0.4,
+    "draw": 0.5,
+    "away": 0.45
+  },
+  "validation_performance": {
+    "total_bets": 124,
+    "win_rate": 56.451612903225815,
+    "roi": 37.903225806451616,
+    "profit": 4700.0,
+    "outcome_stats": {
+      "home": {
+        "bets": 66,
+        "wins": 40,
+        "win_rate": 60.60606060606061,
+        "roi": 21.21212121212121,
+        "profit": 1400.0
+      },
+      "draw": {
+        "bets": 7,
+        "wins": 2,
+        "win_rate": 28.57142857142857,
+        "roi": 0.0,
+        "profit": 0.0
+      },
+      "away": {
+        "bets": 51,
+        "wins": 28,
+        "win_rate": 54.90196078431373,
+        "roi": 64.70588235294117,
+        "profit": 3300.0
+      }
+    }
+  },
+  "typical_odds": {
+    "home": 2.0,
+    "draw": 3.5,
+    "away": 3.0
+  }
+}

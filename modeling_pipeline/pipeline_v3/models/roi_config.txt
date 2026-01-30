@@ -1,0 +1,7 @@
+Best ROI Configuration
+=====================
+Draw multiplier: 1.5
+Away multiplier: 1.3
+Confidence threshold: 0.6
+Expected ROI: 63.5%
+Expected win rate: 66.4%
