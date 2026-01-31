@@ -1,7 +1,10 @@
 """
 Generate Training Data for V4 Pipeline.
 
-Creates complete training dataset with all 150 features from 3 pillars.
+Creates complete training dataset with all 162 features from 3 pillars:
+- Pillar 1: 50 fundamental features
+- Pillar 2: 60 modern analytics features
+- Pillar 3: 52 hidden edge features (40 original + 12 draw parity features)
 """
 import sys
 from pathlib import Path

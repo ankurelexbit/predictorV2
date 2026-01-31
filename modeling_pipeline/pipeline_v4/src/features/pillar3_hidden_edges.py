@@ -1,11 +1,12 @@
 """
 Pillar 3: Hidden Edges Feature Engine for V4 Pipeline.
 
-Generates 40 hidden edge features:
+Generates 52 hidden edge features:
 - Momentum & trajectory (12 features)
 - Fixture difficulty adjusted (10 features)
 - Player quality (10 features)
 - Situational context (8 features)
+- Draw parity indicators (12 features) [NEW]
 """
 import pandas as pd
 import numpy as np
@@ -47,8 +48,8 @@ class Pillar3HiddenEdgesEngine:
         fixtures_df: pd.DataFrame
     ) -> Dict:
         """
-        Generate all 40 Pillar 3 features.
-        
+        Generate all 52 Pillar 3 features.
+
         Args:
             home_team_id: Home team ID
             away_team_id: Away team ID
@@ -56,32 +57,37 @@ class Pillar3HiddenEdgesEngine:
             league_id: League ID
             as_of_date: Date to generate features for
             fixtures_df: All fixtures DataFrame
-            
+
         Returns:
-            Dict with 40 features
+            Dict with 52 features
         """
         features = {}
-        
+
         # 1. Momentum & trajectory (12)
         features.update(self._get_momentum_features(
             home_team_id, away_team_id, as_of_date
         ))
-        
+
         # 2. Fixture difficulty adjusted (10)
         features.update(self._get_fixture_adjusted_features(
             home_team_id, away_team_id, season_id, league_id, as_of_date, fixtures_df
         ))
-        
+
         # 3. Player quality (10)
         features.update(self._get_player_quality_features(
             home_team_id, away_team_id, as_of_date
         ))
-        
+
         # 4. Situational context (8)
         features.update(self._get_context_features(
             home_team_id, away_team_id, season_id, league_id, as_of_date, fixtures_df
         ))
-        
+
+        # 5. Draw parity indicators (12) [NEW]
+        features.update(self._get_draw_parity_features(
+            home_team_id, away_team_id, season_id, league_id, as_of_date, fixtures_df
+        ))
+
         return features
     
     def _get_momentum_features(
@@ -337,3 +343,171 @@ class Pillar3HiddenEdgesEngine:
             'rest_advantage': home_rest - away_rest,
             'is_derby_match': 0,  # Would need geographic data
         }
+
+    def _get_draw_parity_features(
+        self,
+        home_team_id: int,
+        away_team_id: int,
+        season_id: int,
+        league_id: int,
+        as_of_date: datetime,
+        fixtures_df: pd.DataFrame
+    ) -> Dict:
+        """
+        Generate 12 draw parity indicator features.
+
+        These features identify when teams are evenly matched, increasing draw likelihood.
+
+        Features:
+        - Team strength parity (Elo, form, position differences)
+        - Historical draw tendencies (H2H, individual teams, league)
+        - Match context (midtable clash, low-scoring teams)
+        """
+        # Get Elo ratings
+        home_elo = self.elo_calc.get_elo_at_date(home_team_id, as_of_date) or 1500
+        away_elo = self.elo_calc.get_elo_at_date(away_team_id, as_of_date) or 1500
+
+        # Get standings
+        standings = self.standings_calc.calculate_standings_at_date(
+            fixtures_df, season_id, league_id, as_of_date
+        )
+
+        # Recent fixtures
+        home_recent = self.data_loader.get_team_fixtures(home_team_id, as_of_date, limit=10)
+        away_recent = self.data_loader.get_team_fixtures(away_team_id, as_of_date, limit=10)
+
+        # 1. Elo difference (lower = more even match)
+        elo_difference = abs(home_elo - away_elo)
+
+        # 2. Form parity (recent points)
+        home_form_10 = self._calculate_recent_points(home_team_id, home_recent[:10])
+        away_form_10 = self._calculate_recent_points(away_team_id, away_recent[:10])
+        form_difference = abs(home_form_10 - away_form_10)
+
+        # 3. Position difference
+        if len(standings) > 0:
+            home_standing = standings[standings['team_id'] == home_team_id]
+            away_standing = standings[standings['team_id'] == away_team_id]
+            home_pos = home_standing.index[0] + 1 if len(home_standing) > 0 else 10
+            away_pos = away_standing.index[0] + 1 if len(away_standing) > 0 else 10
+            position_difference = abs(home_pos - away_pos)
+        else:
+            home_pos, away_pos = 10, 10
+            position_difference = 0
+
+        # 4. H2H draw rate
+        h2h_matches = fixtures_df[
+            (((fixtures_df['home_team_id'] == home_team_id) & (fixtures_df['away_team_id'] == away_team_id)) |
+             ((fixtures_df['home_team_id'] == away_team_id) & (fixtures_df['away_team_id'] == home_team_id))) &
+            (fixtures_df['starting_at'] < as_of_date) &
+            (fixtures_df['result'].notna())
+        ].sort_values('starting_at', ascending=False)
+
+        h2h_draws = (h2h_matches['result'] == 'D').sum()
+        h2h_total = len(h2h_matches)
+        h2h_draw_rate = h2h_draws / h2h_total if h2h_total > 0 else 0.25
+
+        # 5. Team draw tendencies (last 10 games)
+        home_draws_10 = sum(1 for _, m in home_recent[:10].iterrows() if m['result'] == 'D')
+        away_draws_10 = sum(1 for _, m in away_recent[:10].iterrows() if m['result'] == 'D')
+        home_draw_rate_10 = home_draws_10 / min(10, len(home_recent)) if len(home_recent) > 0 else 0.25
+        away_draw_rate_10 = away_draws_10 / min(10, len(away_recent)) if len(away_recent) > 0 else 0.25
+        combined_draw_tendency = (home_draw_rate_10 + away_draw_rate_10) / 2
+
+        # 6. League draw rate
+        league_matches = fixtures_df[
+            (fixtures_df['league_id'] == league_id) &
+            (fixtures_df['season_id'] == season_id) &
+            (fixtures_df['starting_at'] < as_of_date) &
+            (fixtures_df['result'].notna())
+        ]
+        league_draws = (league_matches['result'] == 'D').sum()
+        league_total = len(league_matches)
+        league_draw_rate = league_draws / league_total if league_total > 0 else 0.25
+
+        # 7. Both teams midtable (positions 7-14 tend to draw more)
+        num_teams = len(standings)
+        is_midtable_range = (7, 14) if num_teams >= 18 else (5, 12)
+        home_is_midtable = 1 if is_midtable_range[0] <= home_pos <= is_midtable_range[1] else 0
+        away_is_midtable = 1 if is_midtable_range[0] <= away_pos <= is_midtable_range[1] else 0
+        both_midtable = home_is_midtable * away_is_midtable
+
+        # 8. Goals scored parity (low-scoring teams draw more)
+        home_goals_10 = self._calculate_goals_scored(home_team_id, home_recent[:10])
+        away_goals_10 = self._calculate_goals_scored(away_team_id, away_recent[:10])
+        avg_goals_combined = (home_goals_10 + away_goals_10) / 2
+        both_low_scoring = 1 if avg_goals_combined < 1.2 else 0
+
+        # 9. Defense parity (both defensive teams)
+        home_goals_conceded_10 = self._calculate_goals_conceded(home_team_id, home_recent[:10])
+        away_goals_conceded_10 = self._calculate_goals_conceded(away_team_id, away_recent[:10])
+        avg_goals_conceded = (home_goals_conceded_10 + away_goals_conceded_10) / 2
+        both_defensive = 1 if avg_goals_conceded < 1.0 else 0
+
+        # 10. Recent draw streak
+        home_last_result = home_recent.iloc[0]['result'] if len(home_recent) > 0 else None
+        away_last_result = away_recent.iloc[0]['result'] if len(away_recent) > 0 else None
+        either_coming_from_draw = 1 if (home_last_result == 'D' or away_last_result == 'D') else 0
+
+        return {
+            # Parity metrics (closer to 0 = more even)
+            'elo_difference': float(elo_difference),
+            'form_difference_10': float(form_difference),
+            'position_difference': int(position_difference),
+
+            # Draw tendency metrics
+            'h2h_draw_rate': float(h2h_draw_rate),
+            'home_draw_rate_10': float(home_draw_rate_10),
+            'away_draw_rate_10': float(away_draw_rate_10),
+            'combined_draw_tendency': float(combined_draw_tendency),
+            'league_draw_rate': float(league_draw_rate),
+
+            # Context indicators
+            'both_midtable': int(both_midtable),
+            'both_low_scoring': int(both_low_scoring),
+            'both_defensive': int(both_defensive),
+            'either_coming_from_draw': int(either_coming_from_draw),
+        }
+
+    def _calculate_recent_points(self, team_id: int, fixtures: pd.DataFrame) -> float:
+        """Calculate total points from recent fixtures."""
+        points = 0
+        for _, match in fixtures.iterrows():
+            is_home = match['home_team_id'] == team_id
+            team_score = match['home_score'] if is_home else match['away_score']
+            opp_score = match['away_score'] if is_home else match['home_score']
+
+            if team_score > opp_score:
+                points += 3
+            elif team_score == opp_score:
+                points += 1
+
+        return float(points)
+
+    def _calculate_goals_scored(self, team_id: int, fixtures: pd.DataFrame) -> float:
+        """Calculate average goals scored per game."""
+        if len(fixtures) == 0:
+            return 1.0
+
+        goals = []
+        for _, match in fixtures.iterrows():
+            is_home = match['home_team_id'] == team_id
+            team_score = match['home_score'] if is_home else match['away_score']
+            if pd.notna(team_score):
+                goals.append(team_score)
+
+        return float(np.mean(goals)) if goals else 1.0
+
+    def _calculate_goals_conceded(self, team_id: int, fixtures: pd.DataFrame) -> float:
+        """Calculate average goals conceded per game."""
+        if len(fixtures) == 0:
+            return 1.0
+
+        goals = []
+        for _, match in fixtures.iterrows():
+            is_home = match['home_team_id'] == team_id
+            opp_score = match['away_score'] if is_home else match['home_score']
+            if pd.notna(opp_score):
+                goals.append(opp_score)
+
+        return float(np.mean(goals)) if goals else 1.0
