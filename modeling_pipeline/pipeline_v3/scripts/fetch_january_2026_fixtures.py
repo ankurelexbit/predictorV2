@@ -86,25 +86,33 @@ def extract_odds(fixture):
     """Extract 1X2 odds from fixture."""
     odds_data = fixture.get('odds', [])
     
-    for bookmaker_odds in odds_data:
-        # Prefer Bet365 (bookmaker_id=2)
-        if bookmaker_odds.get('bookmaker_id') == 2:
-            for market in bookmaker_odds.get('markets', []):
-                if market.get('id') == 1:  # 1X2 market
-                    selections = market.get('selections', [])
-                    odds = {}
-                    for sel in selections:
-                        label = sel.get('label')
-                        value = sel.get('odds')
-                        if label == '1':
-                            odds['home'] = float(value)
-                        elif label == 'X':
-                            odds['draw'] = float(value)
-                        elif label == '2':
-                            odds['away'] = float(value)
-                    
-                    if len(odds) == 3:
-                        return odds
+    if not odds_data:
+        return None
+    
+    # Filter for 1X2 market (market_id=1) and Bet365 (bookmaker_id=2)
+    home_odds = None
+    draw_odds = None
+    away_odds = None
+    
+    for odd in odds_data:
+        if odd.get('market_id') == 1 and odd.get('bookmaker_id') == 2:
+            label = odd.get('label')
+            value = odd.get('value')
+            
+            if value and label:
+                try:
+                    odds_value = float(value)
+                    if label in ['1', 'Home']:  # Home
+                        home_odds = odds_value
+                    elif label in ['X', 'Draw']:  # Draw
+                        draw_odds = odds_value
+                    elif label in ['2', 'Away']:  # Away
+                        away_odds = odds_value
+                except (ValueError, TypeError):
+                    continue
+    
+    if home_odds and draw_odds and away_odds:
+        return {'home': home_odds, 'draw': draw_odds, 'away': away_odds}
     
     return None
 
@@ -145,9 +153,9 @@ def main():
         logger.error("Please set it in your .env file")
         return
     
-    # Fetch January 2026 fixtures
+    # Fetch January 1-29, 2026 fixtures
     start_date = '2026-01-01'
-    end_date = '2026-01-31'
+    end_date = '2026-01-29'
     
     # Focus on major leagues
     league_ids = [

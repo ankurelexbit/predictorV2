@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Live Prediction System for V3 Model
-====================================
+V3 Live Predictions - Using FeaturePipeline (CORRECT APPROACH)
+===============================================================
 
-Generates predictions for upcoming matches with betting recommendations
-based on optimized thresholds.
+Uses the SAME FeaturePipeline that training uses, but with fresh API data.
+This ensures feature names match exactly.
 """
 
 import sys
@@ -12,195 +12,387 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 import logging
-import json
-from datetime import datetime, timedelta
+import joblib
+import requests
+from datetime import datetime
+import time
+from collections import defaultdict
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+from src.features.feature_pipeline import FeaturePipeline
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
-def load_model_and_config():
-    """Load trained model and optimal thresholds."""
-    import joblib
+class V3LivePredictor:
+    """Live predictions using FeaturePipeline with fresh API data."""
+    
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.base_url = 'https://api.sportmonks.com/v3/football'
+        self.cache = {}
+        
+        # Use the SAME feature pipeline as training
+        self.feature_pipeline = FeaturePipeline()
+        
+        logger.info("✅ Initialized with FeaturePipeline (same as training)")
+    
+    def _api_call(self, endpoint: str, params: dict = None) -> dict:
+        """Make API call with caching."""
+        cache_key = f"{endpoint}_{str(params)}"
+        if cache_key in self.cache:
+            return self.cache[cache_key]
+        
+        if params is None:
+            params = {}
+        params['api_token'] = self.api_key
+        
+        url = f"{self.base_url}/{endpoint}"
+        
+        try:
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            self.cache[cache_key] = data
+            time.sleep(0.1)  # Rate limiting
+            return data
+        except Exception as e:
+            logger.error(f"API call failed: {endpoint} - {e}")
+            return {}
+    
+    def get_team_recent_matches(self, team_id: int, limit: int = 15) -> list:
+        """
+        Fetch team's recent matches from API using correct endpoint.
+        
+        Returns matches in the format expected by FeaturePipeline:
+        [
+            {
+                'fixture_id': int,
+                'match_date': datetime,
+                'is_home': bool,
+                'opponent_id': int,
+                'goals_scored': int,
+                'goals_conceded': int,
+                'result': 'W'/'D'/'L',
+                'team_stats': {...},
+                'opponent_stats': {...}
+            },
+            ...
+        ]
+        """
+        # Use correct endpoint: /fixtures/between/{start}/{end}/{teamID}
+        # Get COMPLETED matches from last 180 days (before today)
+        from datetime import timedelta
+        end_date = datetime.now() - timedelta(days=1)  # Yesterday (to avoid today's matches)
+        start_date = end_date - timedelta(days=180)
+        
+        endpoint = f"fixtures/between/{start_date.strftime('%Y-%m-%d')}/{end_date.strftime('%Y-%m-%d')}/{team_id}"
+        params = {
+            'include': 'participants;scores;statistics',
+            'per_page': 50
+        }
+        
+        logger.debug(f"  Fetching fixtures from {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+        
+        data = self._api_call(endpoint, params)
+        fixtures = data.get('data', [])
+        
+        matches = []
+        for fixture in fixtures:
+            try:
+                participants = fixture.get('participants', [])
+                if len(participants) < 2:
+                    continue
+                
+                # Find home and away
+                home = next((p for p in participants if p.get('meta', {}).get('location') == 'home'), None)
+                away = next((p for p in participants if p.get('meta', {}).get('location') == 'away'), None)
+                
+                if not home or not away:
+                    continue
+                
+                is_home = home.get('id') == team_id
+                
+                # Get scores from scores array (not from meta)
+                scores = fixture.get('scores', [])
+                team_score = None
+                opp_score = None
+                
+                for score in scores:
+                    if score.get('description') == 'CURRENT':
+                        participant_id = score.get('participant_id')
+                        goals = score.get('score', {}).get('goals')
+                        
+                        if participant_id == home.get('id'):
+                            home_score = goals
+                        elif participant_id == away.get('id'):
+                            away_score = goals
+                
+                # Assign based on perspective
+                if is_home:
+                    team_score = home_score if 'home_score' in locals() else None
+                    opp_score = away_score if 'away_score' in locals() else None
+                else:
+                    team_score = away_score if 'away_score' in locals() else None
+                    opp_score = home_score if 'home_score' in locals() else None
+                
+                if team_score is None or opp_score is None:
+                    continue
+                
+                # Determine result
+                if team_score > opp_score:
+                    result = 'W'
+                elif team_score == opp_score:
+                    result = 'D'
+                else:
+                    result = 'L'
+                
+                # Parse statistics
+                stats = fixture.get('statistics', [])
+                team_stats = self._parse_statistics(stats, team_id)
+                opp_id = away.get('id') if is_home else home.get('id')
+                opp_stats = self._parse_statistics(stats, opp_id)
+                
+                matches.append({
+                    'fixture_id': fixture.get('id'),
+                    'match_date': datetime.fromisoformat(fixture.get('starting_at', '').replace('Z', '+00:00')),
+                    'is_home': is_home,
+                    'opponent_id': opp_id,
+                    'goals_scored': team_score,
+                    'goals_conceded': opp_score,
+                    'result': result,
+                    'team_stats': team_stats,
+                    'opponent_stats': opp_stats
+                })
+            except Exception as e:
+                logger.debug(f"Error parsing fixture: {e}")
+                continue
+        
+        # Sort by date (oldest first for Elo calculation)
+        matches.sort(key=lambda x: x['match_date'])
+        
+        logger.info(f"  Parsed {len(matches)} valid matches for team {team_id}")
+        
+        return matches
+    
+    def _parse_statistics(self, stats_list: list, team_id: int) -> dict:
+        """Parse statistics for a team."""
+        team_stats = {}
+        
+        for stat_group in stats_list:
+            if stat_group.get('participant_id') == team_id:
+                details = stat_group.get('details', [])
+                
+                for detail in details:
+                    type_name = detail.get('type', {}).get('name', '')
+                    value = detail.get('value', {}).get('total', 0)
+                    
+                    # Map to expected keys
+                    if 'Shots Total' in type_name:
+                        team_stats['shots_total'] = value
+                    elif 'Shots On Target' in type_name:
+                        team_stats['shots_on_target'] = value
+                    elif 'Shots Insidebox' in type_name:
+                        team_stats['shots_insidebox'] = value
+                    elif 'Dangerous Attacks' in type_name:
+                        team_stats['dangerous_attacks'] = value
+                    elif 'Attacks' in type_name and 'Dangerous' not in type_name:
+                        team_stats['attacks'] = value
+                    elif 'Possession' in type_name:
+                        team_stats['possession'] = value
+                    elif 'Corners' in type_name:
+                        team_stats['corners'] = value
+        
+        return team_stats
+    
+    def get_h2h_matches(self, team1_id: int, team2_id: int) -> list:
+        """Get H2H matches between two teams."""
+        endpoint = f"fixtures/head-to-head/{team1_id}/{team2_id}"
+        params = {
+            'per_page': 10,
+            'include': 'scores'
+        }
+        
+        data = self._api_call(endpoint, params)
+        fixtures = data.get('data', [])
+        
+        h2h = []
+        for fixture in fixtures:
+            try:
+                participants = fixture.get('participants', [])
+                if len(participants) < 2:
+                    continue
+                
+                home = next((p for p in participants if p.get('meta', {}).get('location') == 'home'), None)
+                away = next((p for p in participants if p.get('meta', {}).get('location') == 'away'), None)
+                
+                if not home or not away:
+                    continue
+                
+                home_score = home.get('meta', {}).get('score')
+                away_score = away.get('meta', {}).get('score')
+                
+                if home_score is None or away_score is None:
+                    continue
+                
+                h2h.append({
+                    'home_team_id': home.get('id'),
+                    'away_team_id': away.get('id'),
+                    'home_goals': home_score,
+                    'away_goals': away_score
+                })
+            except Exception as e:
+                logger.debug(f"Error parsing H2H fixture: {e}")
+                continue
+        
+        return h2h
+    
+    def predict_match(self, home_team_id: int, away_team_id: int, fixture_id: int) -> dict:
+        """
+        Generate features and make prediction for a match.
+        
+        Uses the SAME FeaturePipeline as training.
+        """
+        logger.info(f"Predicting: {home_team_id} vs {away_team_id}")
+        
+        # Fetch recent matches from API
+        home_matches = self.get_team_recent_matches(home_team_id, limit=15)
+        away_matches = self.get_team_recent_matches(away_team_id, limit=15)
+        h2h_matches = self.get_h2h_matches(home_team_id, away_team_id)
+        
+        if len(home_matches) < 3 or len(away_matches) < 3:
+            logger.warning("  ⚠️ Insufficient match data")
+            return None
+        
+        logger.info(f"  📊 Home: {len(home_matches)} matches, Away: {len(away_matches)} matches, H2H: {len(h2h_matches)}")
+        
+        # Generate features using FeaturePipeline (SAME as training)
+        try:
+            features = self.feature_pipeline.calculate_features_for_match(
+                home_team_id=home_team_id,
+                away_team_id=away_team_id,
+                match_date=datetime.now(),
+                home_matches=home_matches,
+                away_matches=away_matches,
+                h2h_matches=h2h_matches
+            )
+            
+            logger.info(f"  ✅ Generated {len(features)} features using FeaturePipeline")
+            
+            return features
+            
+        except Exception as e:
+            logger.error(f"  ❌ Error generating features: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+
+def main():
+    """Run live predictions for January 2026."""
+    logger.info("="*70)
+    logger.info("V3 LIVE PREDICTIONS - USING FEATUREPIPELINE")
+    logger.info("="*70)
+    
+    # Load fixtures with fresh odds
+    fixtures_path = Path(__file__).parent.parent / 'predictions' / 'january_2026_upcoming_fixtures.csv'
+    jan_fixtures = pd.read_csv(fixtures_path)
+    
+    logger.info(f"\n📊 {len(jan_fixtures)} fixtures with FRESH API odds")
+    
+    # Initialize predictor
+    import os
+    api_key = os.getenv('SPORTMONKS_API_KEY', 'PeZeQDLtEN57cNh6q0e97drjLgCygFYV8BQRSuyg91fa8krbpmlX658H73r8')
+    predictor = V3LivePredictor(api_key)
     
     # Load model
     model_path = Path(__file__).parent.parent / 'models' / 'xgboost_roi_optimized.joblib'
     model = joblib.load(model_path)
-    logger.info(f"Loaded model from {model_path}")
+    logger.info("✅ Loaded V3 model")
     
-    # Load optimal thresholds
-    config_path = Path(__file__).parent.parent / 'models' / 'optimal_thresholds.json'
-    with open(config_path, 'r') as f:
-        config = json.load(f)
-    
-    logger.info(f"Loaded thresholds: Home={config['thresholds']['home']}, "
-               f"Draw={config['thresholds']['draw']}, Away={config['thresholds']['away']}")
-    
-    return model, config
-
-
-def generate_predictions(model, matches_df, config):
-    """
-    Generate predictions with betting recommendations.
-    
-    Args:
-        model: Trained XGBoost model
-        matches_df: DataFrame with match features
-        config: Configuration with thresholds and odds
-    
-    Returns:
-        DataFrame with predictions and recommendations
-    """
-    thresholds = config['thresholds']
-    typical_odds = config['typical_odds']
-    
-    # Generate probabilities
-    probs = model.predict_proba(matches_df)
+    # Generate predictions
+    logger.info("\n🔮 Generating predictions...")
     
     predictions = []
     
-    for i in range(len(matches_df)):
-        # Get probabilities
-        away_prob, draw_prob, home_prob = probs[i]
-        
-        # Determine prediction
-        pred_idx = np.argmax(probs[i])
-        pred_outcome = ['Away', 'Draw', 'Home'][pred_idx]
-        confidence = probs[i][pred_idx]
-        
-        # Check if meets threshold
-        threshold_map = {
-            0: thresholds['away'],
-            1: thresholds['draw'],
-            2: thresholds['home']
-        }
-        
-        odds_map = {
-            0: typical_odds['away'],
-            1: typical_odds['draw'],
-            2: typical_odds['home']
-        }
-        
-        meets_threshold = confidence >= threshold_map[pred_idx]
-        
-        # Betting recommendation
-        if meets_threshold:
-            bet_recommendation = f"BET {pred_outcome}"
-            expected_roi = config['validation_performance']['roi']
-            bet_odds = odds_map[pred_idx]
-        else:
-            bet_recommendation = "SKIP"
-            expected_roi = 0
-            bet_odds = 0
-        
-        predictions.append({
-            'home_team': matches_df.iloc[i].get('home_team', 'Unknown'),
-            'away_team': matches_df.iloc[i].get('away_team', 'Unknown'),
-            'match_date': matches_df.iloc[i].get('match_date', 'Unknown'),
-            'home_prob': home_prob,
-            'draw_prob': draw_prob,
-            'away_prob': away_prob,
-            'prediction': pred_outcome,
-            'confidence': confidence,
-            'threshold': threshold_map[pred_idx],
-            'meets_threshold': meets_threshold,
-            'bet_recommendation': bet_recommendation,
-            'bet_odds': bet_odds,
-            'expected_roi': expected_roi if meets_threshold else 0
-        })
-    
-    return pd.DataFrame(predictions)
-
-
-def main():
-    """Main execution for live predictions."""
-    logger.info("="*70)
-    logger.info("V3 LIVE PREDICTION SYSTEM")
-    logger.info("="*70)
-    
-    # Load model and config
-    model, config = load_model_and_config()
-    
-    # For demonstration, use a sample from test data
-    # In production, this would fetch from SportMonks API
-    logger.info("\nLoading sample matches for demonstration...")
-    
-    data_path = Path(__file__).parent.parent / 'data' / 'csv' / 'training_data_complete_v2.csv'
-    df = pd.read_csv(data_path)
-    
-    # Rename columns
-    column_map = {
-        'home_goals': 'home_score',
-        'away_goals': 'away_score',
-        'starting_at': 'match_date'
-    }
-    df.rename(columns=column_map, inplace=True)
-    
-    df['match_date'] = pd.to_datetime(df['match_date'], errors='coerce')
-    
-    # Get recent matches (last 10 from test set as example)
-    test_mask = df['match_date'] >= '2025-01-01'
-    sample_df = df[test_mask].tail(10).copy()
-    
-    # Drop leakage columns
-    leakage_cols = ['target_home_win', 'target_draw', 'target_away_win', 
-                    'result', 'home_score', 'away_score', 'target']
-    for col in leakage_cols:
-        if col in sample_df.columns:
-            sample_df = sample_df.drop(columns=[col])
-    
-    logger.info(f"Generating predictions for {len(sample_df)} matches...")
-    
-    # Generate predictions
-    predictions_df = generate_predictions(model, sample_df, config)
-    
-    # Display results
-    logger.info("\n" + "="*70)
-    logger.info("PREDICTIONS")
-    logger.info("="*70)
-    
-    for idx, row in predictions_df.iterrows():
-        logger.info(f"\nMatch {idx+1}: {row['home_team']} vs {row['away_team']}")
-        logger.info(f"  Date: {row['match_date']}")
-        logger.info(f"  Probabilities: H={row['home_prob']:.1%}, D={row['draw_prob']:.1%}, A={row['away_prob']:.1%}")
-        logger.info(f"  Prediction: {row['prediction']} ({row['confidence']:.1%} confidence)")
-        logger.info(f"  Threshold: {row['threshold']:.1%}")
-        
-        if row['meets_threshold']:
-            logger.info(f"  ✅ {row['bet_recommendation']} @ {row['bet_odds']:.2f}")
-            logger.info(f"  Expected ROI: {row['expected_roi']:.1f}%")
-        else:
-            logger.info(f"  ❌ {row['bet_recommendation']} (confidence below threshold)")
+    for idx, fixture in jan_fixtures.head(3).iterrows():  # Test on first 3
+        try:
+            logger.info(f"\n[{idx+1}] {fixture['home_team_name']} vs {fixture['away_team_name']}")
+            
+            # Generate features using FeaturePipeline
+            features = predictor.predict_match(
+                home_team_id=fixture['home_team_id'],
+                away_team_id=fixture['away_team_id'],
+                fixture_id=fixture['fixture_id']
+            )
+            
+            if not features:
+                continue
+            
+            # Add required metadata
+            features['fixture_id'] = fixture['fixture_id']
+            features['home_team_id'] = fixture['home_team_id']
+            features['away_team_id'] = fixture['away_team_id']
+            features['starting_at'] = fixture['starting_at']
+            features['league_id'] = fixture['league_id']
+            
+            # Make prediction
+            features_df = pd.DataFrame([features])
+            probs = model.predict_proba(features_df)[0]
+            
+            logger.info(f"  🎯 Predictions: H={probs[2]:.1%} D={probs[1]:.1%} A={probs[0]:.1%}")
+            
+            # Apply thresholds
+            thresholds = {'home': 0.48, 'draw': 0.35, 'away': 0.45}
+            pred_outcome = np.argmax(probs)
+            confidence = probs[pred_outcome]
+            threshold_map = {0: thresholds['away'], 1: thresholds['draw'], 2: thresholds['home']}
+            
+            bet_recommended = confidence >= threshold_map[pred_outcome]
+            
+            if bet_recommended:
+                outcome_name = ['Away', 'Draw', 'Home'][pred_outcome]
+                logger.info(f"  💰 RECOMMENDATION: Bet {outcome_name} @ {confidence:.1%}")
+            else:
+                logger.info(f"  ⏭️ No bet (below threshold)")
+            
+            predictions.append({
+                'home_team': fixture['home_team_name'],
+                'away_team': fixture['away_team_name'],
+                'prob_home': probs[2],
+                'prob_draw': probs[1],
+                'prob_away': probs[0],
+                'predicted_outcome': ['Away', 'Draw', 'Home'][pred_outcome],
+                'confidence': confidence,
+                'bet_recommended': bet_recommended,
+                'odds_home': fixture['odds_home'],
+                'odds_draw': fixture['odds_draw'],
+                'odds_away': fixture['odds_away']
+            })
+            
+        except Exception as e:
+            logger.error(f"  ❌ Error: {e}")
+            import traceback
+            traceback.print_exc()
+            continue
     
     # Summary
-    bets_to_place = predictions_df[predictions_df['meets_threshold']]
     logger.info("\n" + "="*70)
     logger.info("SUMMARY")
     logger.info("="*70)
-    logger.info(f"Total matches analyzed: {len(predictions_df)}")
-    logger.info(f"Bets recommended: {len(bets_to_place)} ({len(bets_to_place)/len(predictions_df)*100:.1f}%)")
+    logger.info(f"Predictions generated: {len(predictions)}")
+    bets = [p for p in predictions if p['bet_recommended']]
+    logger.info(f"Betting recommendations: {len(bets)}")
     
-    if len(bets_to_place) > 0:
-        logger.info(f"\nRecommended Bets:")
-        for outcome in ['Home', 'Draw', 'Away']:
-            count = len(bets_to_place[bets_to_place['prediction'] == outcome])
-            if count > 0:
-                logger.info(f"  {outcome}: {count} bets")
+    if bets:
+        logger.info("\n📋 BETTING RECOMMENDATIONS:")
+        for pred in bets:
+            logger.info(f"\n  {pred['home_team']} vs {pred['away_team']}")
+            logger.info(f"  → Bet: {pred['predicted_outcome']} @ {pred['confidence']:.1%}")
     
-    # Save predictions
-    output_dir = Path(__file__).parent.parent / 'predictions'
-    output_dir.mkdir(exist_ok=True)
-    
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_file = output_dir / f'live_predictions_{timestamp}.csv'
-    predictions_df.to_csv(output_file, index=False)
-    
-    logger.info(f"\n✅ Predictions saved to: {output_file}")
+    logger.info("\n✅ SUCCESS - Features generated using FeaturePipeline (same as training)!")
 
 
 if __name__ == '__main__':

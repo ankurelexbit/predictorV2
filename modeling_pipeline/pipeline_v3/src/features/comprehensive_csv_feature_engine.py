@@ -42,9 +42,17 @@ class ComprehensiveCSVFeatureEngine:
         self.statistics = pd.read_csv(self.data_dir / 'statistics.csv')
         self.lineups = pd.read_csv(self.data_dir / 'lineups.csv')
         
+        # Load standings
+        standings_path = self.data_dir / 'standings.csv'
+        if standings_path.exists():
+            self.standings = pd.read_csv(standings_path)
+        else:
+            logger.warning("standings.csv not found, creating empty DataFrame")
+            self.standings = pd.DataFrame(columns=['fixture_id', 'team_id', 'position'])
+        
         # Initialize calculators with correct parameters
         self.elo_calc = CSVEloCalculator(k_factor=32, initial_elo=1500, home_advantage=35)
-        self.position_calc = CSVLeaguePositionCalculator(self.fixtures)
+        self.position_calc = CSVLeaguePositionCalculator(self.fixtures, self.standings)
         self.h2h_calc = CSVH2HCalculator(self.fixtures)
         
         # Pre-calculate expensive operations

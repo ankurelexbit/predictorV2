@@ -48,3 +48,7 @@ models/*.joblib
 *.tar.gz
 *.db
 *.sqlite
+
+pipeline_v4/data/
+pipeline_v4/models/
+
