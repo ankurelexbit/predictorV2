@@ -1,0 +1,135 @@
+{
+  "comparison": [
+    {
+      "Model": "tuned_catboost",
+      "Train_Accuracy": 0.6126592356687898,
+      "Train_LogLoss": 0.901682655232238,
+      "Val_Accuracy": 0.4830917874396135,
+      "Val_LogLoss": 1.0112675585403008,
+      "Test_Accuracy": 0.4825408618127786,
+      "Test_LogLoss": 1.012401533731469,
+      "Test_Away_Acc": 0.5034403669724771,
+      "Test_Draw_Acc": 0.37915407854984895,
+      "Test_Home_Acc": 0.5259067357512953
+    },
+    {
+      "Model": "tuned_xgboost",
+      "Train_Accuracy": 0.711624203821656,
+      "Train_LogLoss": 0.8204488362272169,
+      "Val_Accuracy": 0.48569305091044224,
+      "Val_LogLoss": 1.010347117064856,
+      "Test_Accuracy": 0.4888558692421991,
+      "Test_LogLoss": 1.0125093996655186,
+      "Test_Away_Acc": 0.5080275229357798,
+      "Test_Draw_Acc": 0.3640483383685801,
+      "Test_Home_Acc": 0.5457685664939551
+    },
+    {
+      "Model": "baseline_catboost",
+      "Train_Accuracy": 0.5560509554140127,
+      "Train_LogLoss": 0.9476069431344107,
+      "Val_Accuracy": 0.48792270531400966,
+      "Val_LogLoss": 1.0122108088329898,
+      "Test_Accuracy": 0.4795690936106984,
+      "Test_LogLoss": 1.0142289268116516,
+      "Test_Away_Acc": 0.47706422018348627,
+      "Test_Draw_Acc": 0.4123867069486405,
+      "Test_Home_Acc": 0.5198618307426598
+    },
+    {
+      "Model": "tuned_lightgbm",
+      "Train_Accuracy": 0.7601910828025478,
+      "Train_LogLoss": 0.7676311996973857,
+      "Val_Accuracy": 0.48940914158305465,
+      "Val_LogLoss": 1.0086945794992426,
+      "Test_Accuracy": 0.48291233283803864,
+      "Test_LogLoss": 1.016575566349484,
+      "Test_Away_Acc": 0.518348623853211,
+      "Test_Draw_Acc": 0.3187311178247734,
+      "Test_Home_Acc": 0.5500863557858376
+    },
+    {
+      "Model": "stacking_ensemble",
+      "Train_Accuracy": 0.6286624203821656,
+      "Train_LogLoss": 0.883151976268123,
+      "Val_Accuracy": 0.4790040876997399,
+      "Val_LogLoss": 1.0109752574472566,
+      "Test_Accuracy": 0.4728826151560178,
+      "Test_LogLoss": 1.0172156080786054,
+      "Test_Away_Acc": 0.4369266055045872,
+      "Test_Draw_Acc": 0.45770392749244715,
+      "Test_Home_Acc": 0.5086355785837651
+    },
+    {
+      "Model": "baseline_xgboost",
+      "Train_Accuracy": 0.830812101910828,
+      "Train_LogLoss": 0.6711833842558864,
+      "Val_Accuracy": 0.47788926049795616,
+      "Val_LogLoss": 1.0219790186392008,
+      "Test_Accuracy": 0.48588410104011887,
+      "Test_LogLoss": 1.0187280541774941,
+      "Test_Away_Acc": 0.5447247706422018,
+      "Test_Draw_Acc": 0.29607250755287007,
+      "Test_Home_Acc": 0.5500863557858376
+    },
+    {
+      "Model": "baseline_lightgbm",
+      "Train_Accuracy": 0.7900477707006369,
+      "Train_LogLoss": 0.7147621193486602,
+      "Val_Accuracy": 0.49126718691936083,
+      "Val_LogLoss": 1.0216794435990606,
+      "Test_Accuracy": 0.4784546805349183,
+      "Test_LogLoss": 1.0280140070093269,
+      "Test_Away_Acc": 0.5160550458715596,
+      "Test_Draw_Acc": 0.283987915407855,
+      "Test_Home_Acc": 0.5613126079447323
+    }
+  ],
+  "best_params": {
+    "xgboost": {
+      "max_depth": 7,
+      "learning_rate": 0.022432896166003455,
+      "n_estimators": 350,
+      "subsample": 0.6598848209704379,
+      "colsample_bytree": 0.749735596558883,
+      "min_child_weight": 8,
+      "gamma": 4.118158052070831,
+      "reg_alpha": 0.21890742793109721,
+      "reg_lambda": 0.6268933286183777
+    },
+    "lightgbm": {
+      "max_depth": 7,
+      "learning_rate": 0.010998294357249989,
+      "n_estimators": 345,
+      "subsample": 0.6069061891240098,
+      "colsample_bytree": 0.6762886729350948,
+      "min_child_samples": 21,
+      "num_leaves": 91,
+      "reg_alpha": 0.1388508351275209,
+      "reg_lambda": 0.30444250142456514
+    },
+    "catboost": {
+      "iterations": 381,
+      "depth": 7,
+      "learning_rate": 0.029476752145183985,
+      "l2_leaf_reg": 3.1943963819130508,
+      "border_count": 157
+    }
+  },
+  "class_weights": {
+    "0": 1.3,
+    "1": 1.8,
+    "2": 1.0
+  },
+  "summary": {
+    "best_model": "tuned_catboost",
+    "test_accuracy": 0.4825408618127786,
+    "test_logloss": 1.012401533731469,
+    "test_draw_accuracy": 0.37915407854984895,
+    "improvement_vs_baseline": {
+      "accuracy_pp": -0.33432392273402556,
+      "logloss": 0.006326520446025219,
+      "draw_accuracy_pp": 8.308157099697889
+    }
+  }
+}

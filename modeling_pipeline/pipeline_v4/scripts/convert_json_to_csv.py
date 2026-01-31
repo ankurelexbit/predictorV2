@@ -68,29 +68,28 @@ def extract_statistics_from_fixture(fixture: dict) -> dict:
     # Get statistics array
     statistics = fixture.get('statistics', [])
     
-    # Map of type_id to stat name (common SportMonks type IDs)
+    # Map of type_id to stat name (CORRECT SportMonks type IDs from data/reference/sportmonks_types.json)
     stat_type_map = {
-        52: 'shots_total',
-        53: 'shots_on_target',
-        54: 'shots_off_target',
-        55: 'shots_blocked',
-        56: 'shots_inside_box',
-        57: 'shots_outside_box',
-        84: 'fouls',
-        80: 'corners',
-        81: 'offsides',
-        82: 'ball_possession',
-        83: 'yellow_cards',
-        86: 'red_cards',
-        45: 'saves',
+        42: 'shots_total',
+        86: 'shots_on_target',
+        41: 'shots_off_target',
+        58: 'shots_blocked',
+        49: 'shots_inside_box',
+        50: 'shots_outside_box',
+        56: 'fouls',
+        34: 'corners',
+        51: 'offsides',
+        45: 'ball_possession',
+        84: 'yellow_cards',
+        83: 'red_cards',
         78: 'tackles',
-        79: 'interceptions',
-        98: 'clearances',
-        41: 'passes_total',
-        42: 'passes_accurate',
-        43: 'passes_percentage',
-        44: 'attacks',
-        45: 'dangerous_attacks',
+        100: 'interceptions',
+        101: 'clearances',
+        80: 'passes_total',
+        81: 'passes_accurate',
+        82: 'passes_percentage',
+        43: 'attacks',
+        44: 'dangerous_attacks',
     }
     
     # Initialize all stats to None
@@ -204,6 +203,10 @@ def main():
     
     # Convert to DataFrame
     df = pd.DataFrame(all_fixtures)
+    
+    # Deduplicate by ID
+    df = df.drop_duplicates(subset=['id'])
+    logger.info(f"   Unique fixtures after deduplication: {len(df)}")
     
     # Parse dates
     df['starting_at'] = pd.to_datetime(df['starting_at'])

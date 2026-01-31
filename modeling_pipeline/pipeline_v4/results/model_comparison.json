@@ -1,0 +1,128 @@
+{
+  "comparison": [
+    {
+      "Model": "tuned_catboost",
+      "Train_Accuracy": 0.5596337579617834,
+      "Train_LogLoss": 0.9240825898232873,
+      "Val_Accuracy": 0.5280564845782237,
+      "Val_LogLoss": 0.9852458922893365,
+      "Test_Accuracy": 0.5260029717682021,
+      "Test_LogLoss": 0.983591439791245,
+      "Test_Away_Acc": 0.569954128440367,
+      "Test_Draw_Acc": 0.010574018126888218,
+      "Test_Home_Acc": 0.7875647668393783
+    },
+    {
+      "Model": "stacking_ensemble",
+      "Train_Accuracy": 0.5640923566878981,
+      "Train_LogLoss": 0.919082794453952,
+      "Val_Accuracy": 0.5276848755109624,
+      "Val_LogLoss": 0.9829813325316785,
+      "Test_Accuracy": 0.5267459138187222,
+      "Test_LogLoss": 0.9848589381768162,
+      "Test_Away_Acc": 0.555045871559633,
+      "Test_Draw_Acc": 0.0,
+      "Test_Home_Acc": 0.8065630397236615
+    },
+    {
+      "Model": "tuned_xgboost",
+      "Train_Accuracy": 0.5898885350318471,
+      "Train_LogLoss": 0.8924592537148351,
+      "Val_Accuracy": 0.5258268301746563,
+      "Val_LogLoss": 0.986519154490559,
+      "Test_Accuracy": 0.5267459138187222,
+      "Test_LogLoss": 0.9854294172735042,
+      "Test_Away_Acc": 0.5837155963302753,
+      "Test_Draw_Acc": 0.019637462235649546,
+      "Test_Home_Acc": 0.7737478411053541
+    },
+    {
+      "Model": "baseline_catboost",
+      "Train_Accuracy": 0.5640923566878981,
+      "Train_LogLoss": 0.9202555488957657,
+      "Val_Accuracy": 0.5332590115198811,
+      "Val_LogLoss": 0.9857970121646578,
+      "Test_Accuracy": 0.5274888558692422,
+      "Test_LogLoss": 0.9855024439366088,
+      "Test_Away_Acc": 0.5665137614678899,
+      "Test_Draw_Acc": 0.019637462235649546,
+      "Test_Home_Acc": 0.7884283246977547
+    },
+    {
+      "Model": "tuned_lightgbm",
+      "Train_Accuracy": 0.6035031847133758,
+      "Train_LogLoss": 0.8707219759194522,
+      "Val_Accuracy": 0.5269416573764399,
+      "Val_LogLoss": 0.989462645819011,
+      "Test_Accuracy": 0.525260029717682,
+      "Test_LogLoss": 0.9911045697578651,
+      "Test_Away_Acc": 0.5619266055045872,
+      "Test_Draw_Acc": 0.027190332326283987,
+      "Test_Home_Acc": 0.7823834196891192
+    },
+    {
+      "Model": "baseline_xgboost",
+      "Train_Accuracy": 0.7889331210191083,
+      "Train_LogLoss": 0.6601338866592267,
+      "Val_Accuracy": 0.5143069490895578,
+      "Val_LogLoss": 1.010807697103557,
+      "Test_Accuracy": 0.5148588410104011,
+      "Test_LogLoss": 1.002858828970065,
+      "Test_Away_Acc": 0.5596330275229358,
+      "Test_Draw_Acc": 0.09365558912386707,
+      "Test_Home_Acc": 0.7219343696027634
+    },
+    {
+      "Model": "baseline_lightgbm",
+      "Train_Accuracy": 0.7500796178343949,
+      "Train_LogLoss": 0.6998172434316301,
+      "Val_Accuracy": 0.5117056856187291,
+      "Val_LogLoss": 1.0061102532628452,
+      "Test_Accuracy": 0.5174591381872214,
+      "Test_LogLoss": 1.0083707096383059,
+      "Test_Away_Acc": 0.5504587155963303,
+      "Test_Draw_Acc": 0.10725075528700906,
+      "Test_Home_Acc": 0.7271157167530224
+    }
+  ],
+  "best_params": {
+    "xgboost": {
+      "max_depth": 10,
+      "learning_rate": 0.04293926547632171,
+      "n_estimators": 389,
+      "subsample": 0.8292025471752856,
+      "colsample_bytree": 0.693524399556711,
+      "min_child_weight": 4,
+      "gamma": 4.288865040136594,
+      "reg_alpha": 0.25947294499011314,
+      "reg_lambda": 0.8647686411039462
+    },
+    "lightgbm": {
+      "max_depth": 7,
+      "learning_rate": 0.011520254701086242,
+      "n_estimators": 215,
+      "subsample": 0.9069557001109917,
+      "colsample_bytree": 0.7002630977540909,
+      "min_child_samples": 11,
+      "num_leaves": 34,
+      "reg_alpha": 0.7320167459050212,
+      "reg_lambda": 0.16075862129082175
+    },
+    "catboost": {
+      "iterations": 264,
+      "depth": 6,
+      "learning_rate": 0.03877927590111256,
+      "l2_leaf_reg": 4.461144192202019,
+      "border_count": 208
+    }
+  },
+  "summary": {
+    "best_model": "tuned_catboost",
+    "test_accuracy": 0.5260029717682021,
+    "test_logloss": 0.983591439791245,
+    "improvement_vs_baseline": {
+      "accuracy_pp": 1.1144130757800963,
+      "logloss": 0.019267389178820093
+    }
+  }
+}

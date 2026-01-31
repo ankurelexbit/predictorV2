@@ -122,10 +122,10 @@ class HistoricalDataBackfill:
             
             logger.info(f"Total fixtures downloaded across all chunks: {len(all_fixtures)}")
             
-            # Save combined file
-            combined_file = self.output_dir / 'fixtures' / f'all_fixtures_{start_date}_{end_date}.json'
-            with open(combined_file, 'w') as f:
-                json.dump(all_fixtures, f, indent=2)
+            # We no longer save the combined 'all_fixtures' file to avoid duplication.
+            # combined_file = self.output_dir / 'fixtures' / f'all_fixtures_{start_date}_{end_date}.json'
+            # with open(combined_file, 'w') as f:
+            #     json.dump(all_fixtures, f, indent=2)
             
             return all_fixtures
         else:
@@ -174,10 +174,11 @@ class HistoricalDataBackfill:
         
         logger.info(f"Total fixtures downloaded: {len(all_fixtures)}")
         
-        # Save combined file for this chunk
-        combined_file = self.output_dir / 'fixtures' / f'all_fixtures_{start_date}_{end_date}.json'
-        with open(combined_file, 'w') as f:
-            json.dump(all_fixtures, f, indent=2)
+        # We no longer save the combined 'all_fixtures' file to avoid duplication.
+        # League-specific files are preferred for modularity.
+        # combined_file = self.output_dir / 'fixtures' / f'all_fixtures_{start_date}_{end_date}.json'
+        # with open(combined_file, 'w') as f:
+        #     json.dump(all_fixtures, f, indent=2)
         
         return all_fixtures
     
