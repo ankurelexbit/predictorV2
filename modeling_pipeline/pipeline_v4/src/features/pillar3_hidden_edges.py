@@ -14,6 +14,8 @@ from typing import Dict, Optional
 from datetime import datetime
 import logging
 
+from src.features.player_features import PlayerFeatureCalculator
+
 logger = logging.getLogger(__name__)
 
 
@@ -36,7 +38,11 @@ class Pillar3HiddenEdgesEngine:
         self.data_loader = data_loader
         self.standings_calc = standings_calc
         self.elo_calc = elo_calc
-        logger.info("Initialized Pillar3HiddenEdgesEngine")
+
+        # Initialize player feature calculator
+        self.player_calc = PlayerFeatureCalculator(data_loader)
+
+        logger.info("Initialized Pillar3HiddenEdgesEngine with real player features")
     
     def generate_features(
         self,
@@ -278,20 +284,35 @@ class Pillar3HiddenEdgesEngine:
         away_team_id: int,
         as_of_date: datetime
     ) -> Dict:
-        """Generate 10 player quality features."""
-        # Placeholder - would use actual lineup data
-        return {
-            'home_lineup_avg_rating_5': 7.0,
-            'away_lineup_avg_rating_5': 6.8,
-            'home_top_3_players_rating': 7.5,
-            'away_top_3_players_rating': 7.3,
-            'home_key_players_available': 5,
-            'away_key_players_available': 4,
-            'home_players_in_form': 0.6,
-            'away_players_in_form': 0.55,
-            'home_players_unavailable': 1,
-            'away_players_unavailable': 2,
-        }
+        """
+        Generate 10 player quality features using real data.
+
+        Uses lineup data when available, falls back to team-level estimates.
+        """
+        # Try to find fixture_id for this match
+        fixture_id = None
+        try:
+            # Look for a match on this date with these teams
+            fixtures = self.data_loader.get_fixtures_before_date(
+                before_date=as_of_date + pd.Timedelta(hours=24)  # Include same day
+            )
+            match = fixtures[
+                (fixtures['home_team_id'] == home_team_id) &
+                (fixtures['away_team_id'] == away_team_id) &
+                (pd.to_datetime(fixtures['starting_at']).dt.date == as_of_date.date())
+            ]
+            if len(match) > 0:
+                fixture_id = match.iloc[0]['id']
+        except Exception as e:
+            logger.debug(f"Could not find fixture_id: {e}")
+
+        # Calculate features using real player calculator
+        return self.player_calc.calculate_lineup_features(
+            home_team_id=home_team_id,
+            away_team_id=away_team_id,
+            fixture_id=fixture_id if fixture_id else 0,  # Use 0 if not found
+            as_of_date=as_of_date
+        )
     
     def _get_context_features(
         self,

@@ -16,6 +16,15 @@ from src.features.pillar1_fundamentals import Pillar1FundamentalsEngine
 from src.features.pillar2_modern_analytics import Pillar2ModernAnalyticsEngine
 from src.features.pillar3_hidden_edges import Pillar3HiddenEdgesEngine
 
+try:
+    from config.model_config import EloConfig
+except ImportError:
+    # Fallback to defaults if config not available
+    class EloConfig:
+        K_FACTOR = 32
+        HOME_ADVANTAGE = 35
+        INITIAL_ELO = 1500
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,7 +58,11 @@ class FeatureOrchestrator:
         # Initialize calculators
         logger.info("Initializing calculators...")
         self.standings_calc = StandingsCalculator()
-        self.elo_calc = EloCalculator()
+        self.elo_calc = EloCalculator(
+            k_factor=EloConfig.K_FACTOR,
+            home_advantage=EloConfig.HOME_ADVANTAGE,
+            initial_elo=EloConfig.INITIAL_ELO
+        )
         
         # Calculate Elo history
         logger.info("Calculating Elo history...")

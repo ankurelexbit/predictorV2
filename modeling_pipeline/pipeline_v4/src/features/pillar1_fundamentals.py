@@ -117,7 +117,7 @@ class Pillar1FundamentalsEngine:
             'home_elo': float(home_elo or 1500),
             'away_elo': float(away_elo or 1500),
             'elo_diff': float((home_elo or 1500) - (away_elo or 1500)),
-            'elo_diff_with_home_advantage': float((home_elo or 1500) - (away_elo or 1500) + 50),
+            'elo_diff_with_home_advantage': float((home_elo or 1500) - (away_elo or 1500) + self.elo_calc.home_advantage),
             
             # Elo momentum
             'home_elo_change_5': float(home_elo_change_5),

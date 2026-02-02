@@ -51,4 +51,15 @@ models/*.joblib
 
 pipeline_v4/data/
 pipeline_v4/models/
+pipeline_v4/catboost_info/
+pipeline_v4/predictions/
+pipeline_v4/results/
+pipeline_v4/logs/
+
+# Excel files
+*.xlsx
+
+# Text reports in v4
+pipeline_v4/*.txt
+!pipeline_v4/requirements.txt
 

@@ -3,18 +3,23 @@
 Production Model Training Script
 =================================
 
-Simplified training script for production deployment.
-Trains CatBoost model with Conservative weights (1.2/1.5/1.0) and 162 features.
+Trains CatBoost model with Option 3 (Balanced) weights and 162 features.
+Configuration matches deployed production model for consistency.
+
+**CURRENT PRODUCTION CONFIG:**
+- Model: Option 3 (Balanced)
+- Class Weights: Away=1.1, Draw=1.4, Home=1.2
+- Version: v4.1
 
 Usage:
     python3 scripts/train_production_model.py \\
         --data data/training_data_with_draw_features.csv \\
-        --output models/production/model_v4_162feat.joblib
+        --output models/weight_experiments/option3_balanced_retrain.joblib
 
 For weekly retraining:
     python3 scripts/train_production_model.py \\
         --data data/training_data_latest.csv \\
-        --output models/production/model_$(date +%Y%m%d).joblib
+        --output models/production/option3_$(date +%Y%m%d).joblib
 """
 
 import sys
@@ -30,20 +35,39 @@ import optuna
 import joblib
 import json
 
+# Add parent directory to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Production configuration
+# Import production config to stay in sync
+try:
+    from config import production_config
+    USE_PRODUCTION_CONFIG = True
+except ImportError:
+    USE_PRODUCTION_CONFIG = False
+    logger.warning("Could not import production_config, using defaults")
+
+# Production configuration - OPTION 3 (BALANCED)
+# These weights match the deployed production model
 PRODUCTION_CONFIG = {
-    'class_weights': {0: 1.2, 1: 1.5, 2: 1.0},  # Away/Draw/Home
+    'model_name': 'Option 3: Balanced',
+    'version': 'v4.1',
+    'class_weights': {
+        0: 1.1,  # Away
+        1: 1.4,  # Draw
+        2: 1.2   # Home
+    },
     'n_trials': 100,
     'train_ratio': 0.70,
     'val_ratio': 0.15,
     'test_ratio': 0.15,
-    'random_seed': 42
+    'random_seed': 42,
+    'description': 'Balanced weights for optimal draw performance'
 }
 
 FEATURES_TO_EXCLUDE = [
@@ -115,9 +139,18 @@ def train_model(X_train, y_train, X_val, y_val):
     logger.info("TRAINING MODEL")
     logger.info("="*80)
 
+    logger.info(f"\n🤖 Model Configuration:")
+    logger.info(f"   Name: {PRODUCTION_CONFIG['model_name']}")
+    logger.info(f"   Version: {PRODUCTION_CONFIG['version']}")
+    logger.info(f"   Description: {PRODUCTION_CONFIG['description']}")
+
     class_weights = PRODUCTION_CONFIG['class_weights']
-    logger.info(f"Class weights: {class_weights}")
-    logger.info(f"Hyperparameter trials: {PRODUCTION_CONFIG['n_trials']}")
+    logger.info(f"\n⚖️  Class Weights:")
+    logger.info(f"   Away (0): {class_weights[0]}")
+    logger.info(f"   Draw (1): {class_weights[1]}")
+    logger.info(f"   Home (2): {class_weights[2]}")
+
+    logger.info(f"\n🔧 Hyperparameter trials: {PRODUCTION_CONFIG['n_trials']}")
 
     def objective(trial):
         params = {
@@ -242,12 +275,25 @@ def main():
                        help='Path to save trained model')
     parser.add_argument('--n-trials', type=int, default=100,
                        help='Number of Optuna trials (default: 100)')
+    parser.add_argument('--weight-home', type=float, default=1.2,
+                       help='Class weight for home wins (default: 1.2 - Option 3)')
+    parser.add_argument('--weight-draw', type=float, default=1.4,
+                       help='Class weight for draws (default: 1.4 - Option 3)')
+    parser.add_argument('--weight-away', type=float, default=1.1,
+                       help='Class weight for away wins (default: 1.1 - Option 3)')
 
     args = parser.parse_args()
 
     # Override n_trials if specified
     if args.n_trials != 100:
         PRODUCTION_CONFIG['n_trials'] = args.n_trials
+
+    # Override class weights if specified
+    PRODUCTION_CONFIG['class_weights'] = {
+        0: args.weight_away,  # Away
+        1: args.weight_draw,  # Draw
+        2: args.weight_home   # Home
+    }
 
     data_path = Path(args.data)
     output_path = Path(args.output)

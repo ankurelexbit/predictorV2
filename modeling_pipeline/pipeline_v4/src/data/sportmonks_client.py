@@ -179,51 +179,56 @@ class SportMonksClient:
         raise Exception(f"Failed to fetch {endpoint} after {SportMonksConfig.MAX_RETRIES} attempts")
     
     def get_fixtures_between(
-        self, 
-        start_date: str, 
-        end_date: str, 
+        self,
+        start_date: str,
+        end_date: str,
         league_id: Optional[int] = None,
-        include_details: bool = True
+        include_details: bool = True,
+        finished_only: bool = False
     ) -> List[Dict]:
         """
         Get fixtures between two dates.
-        
+
         Args:
             start_date: Start date (YYYY-MM-DD)
             end_date: End date (YYYY-MM-DD)
             league_id: Optional league ID to filter
             include_details: Include statistics, lineups, etc. (default: True)
-        
+            finished_only: Only include finished fixtures (state_id=5) (default: False)
+
         Returns:
             List of fixtures
         """
         # Use the /between endpoint which works in API v3
         endpoint = f'/fixtures/between/{start_date}/{end_date}'
-        
+
         # Handle pagination - API returns max 25 per page
         all_fixtures = []
         page = 1
-        
+
         while True:
             params = {'page': page}
-            
-            # Add league filter to API request (not client-side!)
+
+            # Add filters
+            filters = []
             if league_id:
-                params['filters'] = f'fixtureLeagues:{league_id}'
+                filters.append(f'fixtureLeagues:{league_id}')
+            if finished_only:
+                filters.append('fixtureStates:5')  # 5 = finished
+
+            if filters:
+                params['filters'] = ';'.join(filters)
             
-            # CRITICAL: Include all data in initial call to avoid thousands of additional API calls!
-            # This matches the old successful script pattern
+            # Include necessary data
             if include_details:
+                # Core includes for feature generation
+                # Note: lineups.details, events, formations are very heavy and slow
+                # Only include what's actually needed for features
                 includes = [
-                    "participants",
-                    "scores", 
-                    "statistics",
-                    "lineups.details",  # Player-level statistics
-                    "events",
-                    "formations",
-                    "sidelined",  # Injuries/suspensions
-                    "odds",  # Betting odds
-                    "state"
+                    "participants",  # Team info
+                    "scores",  # Match result
+                    "statistics",  # Match statistics (shots, possession, etc.)
+                    "state"  # Match state
                 ]
                 params['include'] = ';'.join(includes)
             

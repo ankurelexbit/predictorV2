@@ -155,6 +155,29 @@ python3 scripts/convert_json_to_csv.py
 - Supports filtering by league/date
 - Creates 162-feature dataset (162 features + 9 metadata columns)
 
+### Live Prediction ⭐
+**`scripts/predict_live_v4.py`**
+- Makes predictions for upcoming fixtures
+- Downloads live data from SportMonks API
+- Uses FeatureOrchestrator for 162-feature generation
+- Loads production model for predictions
+- Supports single date or date range
+
+**Usage:**
+```bash
+# Predict for today
+python3 scripts/predict_live_v4.py --date today
+
+# Predict for specific date
+python3 scripts/predict_live_v4.py --date 2026-02-15
+
+# Predict for date range
+python3 scripts/predict_live_v4.py --start-date 2026-02-15 --end-date 2026-02-17
+
+# Filter by league and save to CSV
+python3 scripts/predict_live_v4.py --date today --league-id 8 --output predictions.csv
+```
+
 ### Weekly Automation
 **`scripts/weekly_retrain_pipeline.py`** ⚠️
 - **Status:** Needs update to use production training script

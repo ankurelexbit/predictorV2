@@ -875,7 +875,7 @@ def main():
     parser.add_argument("--update", action="store_true", help="Update recent matches")
     parser.add_argument("--days", type=int, default=30, help="Number of days to update (default: 30, use 7 for weekly)")
     parser.add_argument("--season", type=int, help="Collect specific season by ID")
-    parser.add_argument("--min-year", type=int, default=2019, help="Minimum year for full collection")
+    parser.add_argument("--min-year", type=int, default=2016, help="Minimum year for full collection")
     parser.add_argument("--leagues", type=str, help="Comma-separated league IDs")
 
     args = parser.parse_args()

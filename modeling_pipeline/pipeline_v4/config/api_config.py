@@ -2,16 +2,20 @@
 Configuration for SportMonks API.
 """
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
+# Try to load .env file if available (optional)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not installed, use environment variables directly
 
 
 class SportMonksConfig:
     """SportMonks API configuration."""
     
     # API Credentials
-    API_KEY = os.getenv('SPORTMONKS_API_KEY')
+    API_KEY = 'PeZeQDLtEN57cNh6q0e97drjLgCygFYV8BQRSuyg91fa8krbpmlX658H73r8'
     BASE_URL = os.getenv('SPORTMONKS_BASE_URL', 'https://api.sportmonks.com/v3/football')
     
     # Rate Limiting (3000 requests per hour = 50 per minute)
