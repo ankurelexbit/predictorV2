@@ -5,26 +5,75 @@ Production Configuration
 CRITICAL: This file contains the production model and threshold settings.
 Any changes here will affect live predictions!
 
-Last Updated: 2026-02-02
-Model: Option 3 (Balanced) - H=1.2, D=1.4, A=1.1
+Last Updated: 2026-02-03
+Model: Versioned production models in models/production/
+Versioning: Automatic semantic versioning (v1.0.0, v1.1.0, etc.)
 Tested on: January 2026 (202 Top 5 League matches)
 Performance: $41.81 profit, 28.3% ROI, 52.0% win rate
 """
+
+from pathlib import Path
+import re
 
 # ============================================================================
 # MODEL CONFIGURATION
 # ============================================================================
 
-# Production Model Path
-MODEL_PATH = "models/weight_experiments/option3_balanced.joblib"
+def get_latest_model_path() -> str:
+    """
+    Get the path to the latest production model.
+
+    Returns the model specified in models/production/LATEST file,
+    or falls back to finding the highest version number.
+
+    Returns:
+        str: Path to latest model file
+    """
+    production_dir = Path("models/production")
+    latest_file = production_dir / "LATEST"
+
+    # Try reading LATEST file first
+    if latest_file.exists():
+        with open(latest_file, 'r') as f:
+            model_filename = f.read().strip()
+            model_path = production_dir / model_filename
+            if model_path.exists():
+                return str(model_path)
+
+    # Fallback: Find highest version number
+    if production_dir.exists():
+        model_files = list(production_dir.glob("model_v*.joblib"))
+        if model_files:
+            # Extract version numbers and sort
+            versions = []
+            for f in model_files:
+                match = re.search(r'model_v(\d+)\.(\d+)\.(\d+)\.joblib', f.name)
+                if match:
+                    major, minor, patch = map(int, match.groups())
+                    versions.append((major, minor, patch, f))
+
+            if versions:
+                versions.sort(reverse=True)
+                return str(versions[0][3])
+
+    # Final fallback: Legacy model path
+    legacy_path = "models/weight_experiments/option3_balanced.joblib"
+    if Path(legacy_path).exists():
+        return legacy_path
+
+    raise FileNotFoundError("No production model found. Train a model first with train_production_model.py")
+
+
+# Production Model Path (automatically uses latest version)
+MODEL_PATH = get_latest_model_path()
 
 # Model Metadata
 MODEL_INFO = {
     'name': 'Option 3: Balanced',
-    'version': 'v4.1',
+    'version': 'auto',  # Determined from model file
     'class_weights': {'home': 1.2, 'draw': 1.4, 'away': 1.1},
     'trained_on': '2023-2024 seasons',
-    'last_updated': '2026-02-02'
+    'last_updated': '2026-02-03'
 }
 
 # ============================================================================
@@ -119,9 +168,12 @@ def validate_config():
     errors = []
 
     # Check model path exists
-    from pathlib import Path
-    if not Path(MODEL_PATH).exists():
-        errors.append(f"Model path does not exist: {MODEL_PATH}")
+    try:
+        model_path = get_latest_model_path()
+        if not Path(model_path).exists():
+            errors.append(f"Model path does not exist: {model_path}")
+    except FileNotFoundError as e:
+        errors.append(str(e))
 
     # Validate thresholds
     for outcome, thresh in THRESHOLDS.items():

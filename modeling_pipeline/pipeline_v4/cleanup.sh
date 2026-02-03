@@ -36,10 +36,10 @@ rm -rf models/moderate_weights/ 2>/dev/null && echo "   ✅ Deleted models/moder
 rm -rf models/with_draw_features/ 2>/dev/null && echo "   ✅ Deleted models/with_draw_features/" || echo "   ⏭️  models/with_draw_features/ not found"
 rm -f models/v4_*.joblib models/v4_*.json 2>/dev/null && echo "   ✅ Deleted root-level old models" || echo "   ⏭️  No root-level old models"
 
-# 2. Delete old production model (superseded)
+# 2. NOTE: models/production/ now contains VERSIONED models - DO NOT DELETE
+# Legacy models in weight_experiments can be archived after migration
 echo ""
-echo "🗑️  Deleting old production model..."
-rm -rf models/production/ 2>/dev/null && echo "   ✅ Deleted models/production/" || echo "   ⏭️  models/production/ not found"
+echo "ℹ️  Skipping models/production/ (contains versioned production models)"
 
 # 3. Delete log files
 echo ""
@@ -68,7 +68,18 @@ rm -f PRODUCTION_FILES.md 2>/dev/null && echo "   ✅ Deleted PRODUCTION_FILES.m
 rm -f PRODUCTION_GUIDE.md 2>/dev/null && echo "   ✅ Deleted PRODUCTION_GUIDE.md"
 rm -f QUICK_START_PNL.md 2>/dev/null && echo "   ✅ Deleted QUICK_START_PNL.md"
 
-# 6. Delete old/duplicate scripts (optional - uncomment if desired)
+# 6. Delete temporary analysis result files (txt files in root)
+echo ""
+echo "🗑️  Deleting temporary analysis result files..."
+rm -f live_comparison_final.txt 2>/dev/null && echo "   ✅ Deleted live_comparison_final.txt" || echo "   ⏭️  live_comparison_final.txt not found"
+rm -f live_comparison_run2.txt 2>/dev/null && echo "   ✅ Deleted live_comparison_run2.txt" || echo "   ⏭️  live_comparison_run2.txt not found"
+rm -f marketable_results_real.txt 2>/dev/null && echo "   ✅ Deleted marketable_results_real.txt" || echo "   ⏭️  marketable_results_real.txt not found"
+rm -f marketable_thresholds.txt 2>/dev/null && echo "   ✅ Deleted marketable_thresholds.txt" || echo "   ⏭️  marketable_thresholds.txt not found"
+rm -f model_comparison_from_db.txt 2>/dev/null && echo "   ✅ Deleted model_comparison_from_db.txt" || echo "   ⏭️  model_comparison_from_db.txt not found"
+rm -f model_comparison_output.txt 2>/dev/null && echo "   ✅ Deleted model_comparison_output.txt" || echo "   ⏭️  model_comparison_output.txt not found"
+rm -f optimization_strategy_comparison.txt 2>/dev/null && echo "   ✅ Deleted optimization_strategy_comparison.txt" || echo "   ⏭️  optimization_strategy_comparison.txt not found"
+
+# 7. Delete old/duplicate scripts (optional - uncomment if desired)
 # echo ""
 # echo "🗑️  Deleting old/duplicate scripts..."
 # rm -f scripts/analyze_thresholds_no_odds.py

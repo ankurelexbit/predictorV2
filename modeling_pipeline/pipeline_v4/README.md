@@ -6,9 +6,9 @@ Complete **3-pillar feature generation pipeline** with **150 features** built fr
 
 ---
 
-## ⚡ Production Model (v4.1)
+## ⚡ Production Model (v1.0.0)
 
-**Currently Deployed:** Option 3: Balanced
+**Currently Deployed:** Option 3: Balanced (Versioned)
 
 **Performance (January 2026 backtest on Top 5 leagues):**
 - ✅ **28.3% ROI** - Profit: $41.81 on 148 bets
@@ -17,7 +17,8 @@ Complete **3-pillar feature generation pipeline** with **150 features** built fr
 - ✅ **Top 5 Leagues Only** - 3x better than all leagues
 
 **Configuration:**
-- Model: `models/weight_experiments/option3_balanced.joblib`
+- Model: `models/production/model_v1.0.0.joblib` (auto-detected via LATEST)
+- Versioning: Automatic semantic versioning (v1.0.0 → v1.0.1 → v1.0.2, etc.)
 - Class Weights: Away=1.1, Draw=1.4, Home=1.2
 - Thresholds: Home=0.65, Draw=0.30, Away=0.42
 - Leagues: Premier League, Bundesliga, Serie A, Ligue 1, La Liga
@@ -255,15 +256,22 @@ python3 scripts/convert_json_to_csv.py
 python3 scripts/generate_training_data.py \
   --output data/training_data.csv
 
-# 4. Train Model (defaults to Option 3: Balanced - A=1.1, D=1.4, H=1.2)
+# 4. Train Model with automatic versioning (defaults to Option 3: Balanced)
+# Auto-increments version: v1.0.0 → v1.0.1 → v1.0.2, etc.
+python3 scripts/train_production_model.py \
+  --data data/training_data.csv
+
+# Models saved to: models/production/model_v{version}.joblib
+# LATEST file automatically updated
+
+# Optional: Specify version for major/minor updates
 python3 scripts/train_production_model.py \
   --data data/training_data.csv \
-  --output models/production/option3_$(date +%Y%m%d).joblib
+  --version 2.0.0
 
 # Optional: Custom class weights
 python3 scripts/train_production_model.py \
   --data data/training_data.csv \
-  --output models/custom_model.joblib \
   --weight-away 1.0 \
   --weight-draw 1.5 \
   --weight-home 1.3
@@ -364,8 +372,7 @@ pipeline = ProductionLivePipeline(api_key, load_history_days=365)
 result = pipeline.predict(fixture)
 
 # Features generated point-in-time:
-# - Elo ratings from historical matches
-# - Form from last 5 matches
+# - Elo ratings from historical matchesc
 # - Derived xG from recent statistics
 # - Player quality from recent performance
 # - Momentum indicators

@@ -10,7 +10,7 @@ Loads 1 year of historical data on startup to properly initialize:
 
 Uses the SAME methods as training (SportMonksClient + statistics parsing).
 
-Uses conservative model with draw weights (1.2/1.5/1.0).
+Uses production model with automatic version detection from config/production_config.py.
 
 Usage:
     export SPORTMONKS_API_KEY="your_key"
@@ -58,8 +58,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Configuration
-PRODUCTION_MODEL_PATH = 'models/with_draw_features/conservative_with_draw_features.joblib'
+# Import production config for consistent model path
+try:
+    from config import production_config
+    PRODUCTION_MODEL_PATH = production_config.MODEL_PATH
+except ImportError:
+    # Fallback if config not available
+    PRODUCTION_MODEL_PATH = 'models/production/model_v1.0.0.joblib'
+    logger.warning("Could not import production_config, using fallback model path")
 
 
 def extract_statistics_from_fixture(fixture: dict) -> dict:

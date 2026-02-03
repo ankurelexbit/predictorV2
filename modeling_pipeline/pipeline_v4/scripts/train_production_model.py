@@ -9,17 +9,27 @@ Configuration matches deployed production model for consistency.
 **CURRENT PRODUCTION CONFIG:**
 - Model: Option 3 (Balanced)
 - Class Weights: Away=1.1, Draw=1.4, Home=1.2
-- Version: v4.1
+- Versioning: Semantic versioning (v1.0.0, v1.1.0, etc.)
+
+**AUTOMATIC VERSIONING:**
+Models are automatically versioned and saved to models/production/ with:
+- Format: model_v{major}.{minor}.{patch}.joblib
+- Auto-increments patch version for retrains
+- Creates LATEST file for automatic model discovery
 
 Usage:
+    # Standard training (auto-increments patch version)
     python3 scripts/train_production_model.py \\
-        --data data/training_data_with_draw_features.csv \\
-        --output models/weight_experiments/option3_balanced_retrain.joblib
+        --data data/training_data.csv
 
-For weekly retraining:
+    # Specify version for major/minor updates
     python3 scripts/train_production_model.py \\
-        --data data/training_data_latest.csv \\
-        --output models/production/option3_$(date +%Y%m%d).joblib
+        --data data/training_data.csv \\
+        --version 2.0.0
+
+    # Weekly automated retraining (auto-versioning)
+    python3 scripts/train_production_model.py \\
+        --data data/training_data_latest.csv
 """
 
 import sys
@@ -34,6 +44,7 @@ import catboost as cb
 import optuna
 import joblib
 import json
+import re
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -75,6 +86,48 @@ FEATURES_TO_EXCLUDE = [
     'match_date', 'home_score', 'away_score', 'result', 'target',
     'home_team_name', 'away_team_name', 'state_id'
 ]
+
+
+def get_latest_version(production_dir: Path) -> str:
+    """Get the latest version number from existing models."""
+    if not production_dir.exists():
+        return "1.0.0"
+
+    # Find all model files matching pattern model_v*.joblib
+    model_files = list(production_dir.glob("model_v*.joblib"))
+
+    if not model_files:
+        return "1.0.0"
+
+    # Extract version numbers
+    versions = []
+    for f in model_files:
+        match = re.search(r'model_v(\d+)\.(\d+)\.(\d+)\.joblib', f.name)
+        if match:
+            major, minor, patch = map(int, match.groups())
+            versions.append((major, minor, patch))
+
+    if not versions:
+        return "1.0.0"
+
+    # Get the highest version
+    versions.sort(reverse=True)
+    major, minor, patch = versions[0]
+
+    # Increment patch version for retraining
+    return f"{major}.{minor}.{patch + 1}"
+
+
+def create_latest_file(model_path: Path):
+    """Create LATEST file pointing to the current model version."""
+    latest_file = model_path.parent / "LATEST"
+
+    # Write the model filename to LATEST file
+    with open(latest_file, 'w') as f:
+        f.write(model_path.name)
+
+    logger.info(f"✅ Updated LATEST pointer: {latest_file}")
+    logger.info(f"   → {model_path.name}")
 
 
 def load_and_prepare_data(data_path: Path):
@@ -234,8 +287,8 @@ def evaluate_model(model, X_test, y_test):
     return metrics
 
 
-def save_model(model, output_path: Path, metrics: dict, best_params: dict, feature_count: int):
-    """Save model and metadata."""
+def save_model(model, output_path: Path, metrics: dict, best_params: dict, feature_count: int, version: str):
+    """Save model and metadata with versioning."""
     logger.info("\n" + "="*80)
     logger.info("SAVING MODEL")
     logger.info("="*80)
@@ -249,6 +302,7 @@ def save_model(model, output_path: Path, metrics: dict, best_params: dict, featu
 
     # Save metadata
     metadata = {
+        'version': version,
         'timestamp': datetime.now().isoformat(),
         'model_type': 'CatBoost',
         'features': feature_count,
@@ -264,15 +318,20 @@ def save_model(model, output_path: Path, metrics: dict, best_params: dict, featu
 
     logger.info(f"✅ Metadata saved: {metadata_path}")
 
+    # Create LATEST pointer
+    create_latest_file(output_path)
+
     return metadata_path
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Train production CatBoost model')
+    parser = argparse.ArgumentParser(description='Train production CatBoost model with automatic versioning')
     parser.add_argument('--data', type=str, required=True,
                        help='Path to training data CSV')
-    parser.add_argument('--output', type=str, required=True,
-                       help='Path to save trained model')
+    parser.add_argument('--version', type=str, default=None,
+                       help='Model version (e.g., 1.0.0). If not specified, auto-increments from latest')
+    parser.add_argument('--output-dir', type=str, default='models/production',
+                       help='Directory to save models (default: models/production)')
     parser.add_argument('--n-trials', type=int, default=100,
                        help='Number of Optuna trials (default: 100)')
     parser.add_argument('--weight-home', type=float, default=1.2,
@@ -296,13 +355,28 @@ def main():
     }
 
     data_path = Path(args.data)
-    output_path = Path(args.output)
+    output_dir = Path(args.output_dir)
+
+    # Determine version
+    if args.version:
+        version = args.version
+        logger.info(f"Using specified version: v{version}")
+    else:
+        version = get_latest_version(output_dir)
+        logger.info(f"Auto-incremented version: v{version}")
+
+    # Create output path with version
+    output_path = output_dir / f"model_v{version}.joblib"
+
+    # Update production config version
+    PRODUCTION_CONFIG['version'] = f"v{version}"
 
     logger.info("="*80)
     logger.info("PRODUCTION MODEL TRAINING")
     logger.info("="*80)
     logger.info(f"Data: {data_path}")
     logger.info(f"Output: {output_path}")
+    logger.info(f"Version: v{version}")
     logger.info(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     try:
@@ -319,13 +393,14 @@ def main():
         metrics = evaluate_model(model, X_test, y_test)
 
         # Save
-        metadata_path = save_model(model, output_path, metrics, best_params, len(feature_cols))
+        metadata_path = save_model(model, output_path, metrics, best_params, len(feature_cols), version)
 
         logger.info("\n" + "="*80)
         logger.info("✅ TRAINING COMPLETE!")
         logger.info("="*80)
         logger.info(f"Model: {output_path}")
         logger.info(f"Metadata: {metadata_path}")
+        logger.info(f"Version: v{version}")
         logger.info(f"Log Loss: {metrics['log_loss']:.4f}")
         logger.info(f"Accuracy: {metrics['accuracy']:.1%}")
 

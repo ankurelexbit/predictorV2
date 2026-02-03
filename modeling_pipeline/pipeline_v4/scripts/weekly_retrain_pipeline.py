@@ -147,33 +147,27 @@ class WeeklyRetrainPipeline:
         return success
 
     def step4_train_model(self) -> bool:
-        """Train model on latest data."""
+        """Train model on latest data with automatic versioning."""
         logger.info("\n" + "=" * 80)
         logger.info("STEP 4: TRAINING MODEL")
         logger.info("=" * 80)
 
         training_file = "data/training_data_latest.csv"
-        output_model = f"models/v4_model_{self.timestamp}.joblib"
 
-        cmd = f"""python3 scripts/train_improved_model.py \
-            --data {training_file} \
-            --output {output_model} \
-            --model stacking"""
+        # Use new versioned training script (auto-increments version)
+        cmd = f"""python3 scripts/train_production_model.py \
+            --data {training_file}"""
 
-        success = self.run_command(cmd, "Train model")
+        success = self.run_command(cmd, "Train production model with auto-versioning")
 
         if success:
-            # Create symlink to latest model
-            latest_link = Path('models/v4_model_latest.joblib')
-            if latest_link.exists():
-                latest_link.unlink()
-            latest_link.symlink_to(Path(output_model).name)
-            logger.info(f"Created symlink: {latest_link} -> {output_model}")
+            logger.info("✅ Model trained and versioned successfully")
+            logger.info("   Latest model path saved in models/production/LATEST")
 
         return success
 
-    def step5_cleanup_old_files(self, keep_last_n: int = 3):
-        """Clean up old training data and model files."""
+    def step5_cleanup_old_files(self, keep_last_n: int = 5):
+        """Clean up old training data files (models are kept with versioning)."""
         logger.info("\n" + "=" * 80)
         logger.info("STEP 5: CLEANUP OLD FILES")
         logger.info("=" * 80)
@@ -188,15 +182,11 @@ class WeeklyRetrainPipeline:
                     logger.info(f"Deleting old training data: {old_file}")
                     old_file.unlink()
 
-        # Clean old models
-        models_dir = Path('models')
-        model_files = sorted(models_dir.glob('v4_model_*.joblib'), reverse=True)
-
-        if len(model_files) > keep_last_n:
-            for old_model in model_files[keep_last_n:]:
-                if 'latest' not in old_model.name:
-                    logger.info(f"Deleting old model: {old_model}")
-                    old_model.unlink()
+        # Note: Versioned models in models/production/ are kept for rollback capability
+        # Manual cleanup via: rm models/production/model_v{old_version}.joblib
+        logger.info(f"✅ Kept last {keep_last_n} training data files")
+        logger.info("   Production models are versioned and kept for rollback")
+        logger.info("   Cleanup old model versions manually if needed")
 
         logger.info("Cleanup complete")
 
