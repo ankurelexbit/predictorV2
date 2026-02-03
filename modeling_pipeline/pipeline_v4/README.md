@@ -800,6 +800,351 @@ Store predictions in Supabase
 
 ## 📝 Future Improvements / TODO
 
+### Marketing Strategies (To Explore)
+
+Currently, the production model has **39% draw win rate** despite being highly profitable (37.8% ROI on draws). This creates a marketing challenge. Several strategies to consider:
+
+**Option A: Two-Tier Product**
+- **"Value Betting" Tier** (Advanced users)
+  - Use profit-optimal thresholds: H=0.65, D=0.22, A=0.42
+  - Performance: $51.78 profit, 36% draw win rate, 25.8% ROI
+  - Market to: Experienced bettors who understand variance and ROI
+
+- **"High Win Rate" Tier** (Mass market)
+  - Use win-rate-optimal thresholds: H=0.65, D=0.40, A=0.40
+  - Performance: $8.47 profit, 0 draw bets, 64% overall win rate
+  - Market to: Beginners who need confidence building
+  - Trade-off: Lower profit but better user retention
+
+**Option B: Selective Draw Strategy**
+- Only recommend draws when win rate will be 50%+ (very high threshold)
+- Accept fewer draw predictions but better customer experience
+- Keeps home/away bets at current levels
+- Positions draws as "special high-value opportunities"
+
+**Option C: Emphasize Overall Win Rate**
+- Market the **52% overall win rate** across all bets
+- Don't break down performance by outcome in marketing materials
+- Show total ROI (28.3%) and profit
+- Customers won't see individual outcome weakness
+
+**Option D: Transparent Education**
+- Teach customers about Expected Value and long-term profitability
+- Example messaging:
+  ```
+  "Our draw predictions win 39% of the time - here's why that's profitable:
+
+  Average draw odds: 3.8x
+  Expected return: 39% × 3.8x = 1.48x (48% profit!)
+
+  We focus on VALUE, not just win rate.
+  Over 100 bets, our strategy delivers 28% ROI."
+  ```
+- Positions product for sophisticated users
+- Builds trust through transparency
+
+**Option E: Expected Value (EV) Based Betting**
+- Instead of probability thresholds, bet when EV > threshold
+- EV = (probability × odds) - 1
+- Example: 35% draw probability at 3.5 odds = 22.5% EV
+- Only bet when EV > 5% or 10% (configurable)
+- Automatically adapts to market odds (bets more when odds are favorable)
+- See detailed explanation in "EV-Based Betting Strategy" section below
+
+**Recommendation:**
+Start with **Option C** (emphasize overall metrics) for initial marketing, then introduce **Option D** (education) once user base is established. Consider **Option E** (EV-based) for a premium tier focused on maximizing long-term profit.
+
+---
+
+### EV-Based Betting Strategy (Advanced)
+
+**What is Expected Value (EV)?**
+
+Expected Value measures the average profit or loss per bet over the long term:
+
+```
+EV = (Win Probability × Decimal Odds) - 1
+
+Positive EV (+EV) = Profitable bet in long run
+Negative EV (-EV) = Losing bet in long run
+Zero EV = Break-even bet
+```
+
+**Example Calculation:**
+
+```
+Match: Liverpool vs Arsenal
+Model Prediction: Draw = 35% probability
+Best Market Odds: 3.80 (from Bet365)
+
+EV = (0.35 × 3.80) - 1
+EV = 1.33 - 1
+EV = 0.33 = +33% Expected Value
+
+For $1 bet:
+- Expected return: $1.33
+- Expected profit: $0.33
+- ROI: 33%
+```
+
+**Why EV > Probability Thresholds?**
+
+**Current Approach (Probability Threshold):**
+```python
+# Bet if probability > fixed threshold
+if draw_prob > 0.30:
+    place_bet()
+
+# Problem: Ignores odds!
+# 31% at 2.5 odds: EV = -22.5% (bad bet)
+# 31% at 4.0 odds: EV = +24% (great bet)
+```
+
+**EV-Based Approach:**
+```python
+# Bet if EV > threshold
+ev = (draw_prob * draw_odds) - 1
+if ev > 0.05:  # 5% minimum EV
+    place_bet()
+
+# Automatically considers:
+# - Model confidence (probability)
+# - Market pricing (odds)
+# - Value opportunity (EV)
+```
+
+**Implementation Example:**
+
+```python
+def calculate_ev(probability: float, odds: float) -> float:
+    """Calculate Expected Value for a bet."""
+    return (probability * odds) - 1
+
+def should_bet_ev_strategy(
+    home_prob: float,
+    draw_prob: float,
+    away_prob: float,
+    home_odds: float,
+    draw_odds: float,
+    away_odds: float,
+    min_ev: float = 0.05  # 5% minimum EV
+) -> dict:
+    """
+    Determine betting recommendation using EV strategy.
+
+    Args:
+        *_prob: Model predicted probabilities (0-1)
+        *_odds: Best available market odds (decimal)
+        min_ev: Minimum EV threshold (e.g., 0.05 = 5%)
+
+    Returns:
+        dict with bet recommendation and EV values
+    """
+    ev_home = calculate_ev(home_prob, home_odds)
+    ev_draw = calculate_ev(draw_prob, draw_odds)
+    ev_away = calculate_ev(away_prob, away_odds)
+
+    # Find all +EV bets above threshold
+    opportunities = []
+    if ev_home > min_ev:
+        opportunities.append(('home', ev_home, home_prob, home_odds))
+    if ev_draw > min_ev:
+        opportunities.append(('draw', ev_draw, draw_prob, draw_odds))
+    if ev_away > min_ev:
+        opportunities.append(('away', ev_away, away_prob, away_odds))
+
+    # Bet on highest EV opportunity (if any)
+    if opportunities:
+        opportunities.sort(key=lambda x: x[1], reverse=True)
+        best = opportunities[0]
+        return {
+            'should_bet': True,
+            'bet_outcome': best[0],
+            'ev': best[1],
+            'probability': best[2],
+            'odds': best[3],
+            'expected_profit': best[1]  # EV is expected profit per $1
+        }
+
+    return {'should_bet': False}
+
+# Usage example
+result = should_bet_ev_strategy(
+    home_prob=0.42,
+    draw_prob=0.35,
+    away_prob=0.23,
+    home_odds=2.10,
+    draw_odds=3.80,
+    away_odds=3.50,
+    min_ev=0.05
+)
+
+if result['should_bet']:
+    print(f"BET {result['bet_outcome'].upper()}")
+    print(f"EV: {result['ev']:.1%}")
+    print(f"Probability: {result['probability']:.1%}")
+    print(f"Odds: {result['odds']:.2f}")
+```
+
+**Comparison: Probability vs EV Strategy**
+
+Using January 2026 data as example:
+
+```
+Match: Chelsea vs Manchester City
+Model: Draw = 32%, Home = 45%, Away = 23%
+Market Odds: Draw = 3.4, Home = 2.3, Away = 3.8
+
+PROBABILITY STRATEGY (H=0.65, D=0.30, A=0.42):
+✓ Draw crosses threshold (32% > 30%)
+✓ Home doesn't cross (45% < 65%)
+✓ Away doesn't cross (23% < 42%)
+→ BET DRAW
+
+EV CALCULATION:
+- Draw EV: (0.32 × 3.4) - 1 = 8.8%
+- Home EV: (0.45 × 2.3) - 1 = 3.5%
+- Away EV: (0.23 × 3.8) - 1 = -12.6%
+
+EV STRATEGY (min_ev = 0.05):
+✓ Draw EV = 8.8% (good bet)
+✓ Home EV = 3.5% (marginal, skip if min_ev=0.05)
+✗ Away EV = -12.6% (bad bet, avoid)
+→ BET DRAW (same result, but for right reason)
+
+---
+
+Match: Arsenal vs Nottingham Forest
+Model: Home = 72%, Draw = 18%, Away = 10%
+Market Odds: Home = 1.25, Draw = 6.5, Away = 11.0
+
+PROBABILITY STRATEGY:
+✓ Home crosses threshold (72% > 65%)
+✗ Draw doesn't cross (18% < 30%)
+✗ Away doesn't cross (10% < 42%)
+→ BET HOME
+
+EV CALCULATION:
+- Home EV: (0.72 × 1.25) - 1 = -10%  ❌ NEGATIVE EV!
+- Draw EV: (0.18 × 6.5) - 1 = 17%   ✅ POSITIVE EV!
+- Away EV: (0.10 × 11.0) - 1 = 10%  ✅ POSITIVE EV!
+
+EV STRATEGY (min_ev = 0.05):
+✗ Home EV = -10% (bad bet, market correctly prices favorite)
+✓ Draw EV = 17% (excellent value despite low probability!)
+✓ Away EV = 10% (good value on longshot)
+→ BET DRAW (highest EV)
+
+Key Insight: EV strategy AVOIDS the home bet (which would likely lose)
+            and finds VALUE in the underpriced draw!
+```
+
+**Benefits of EV Strategy:**
+
+1. **Adapts to Market Conditions**
+   - Bets more when odds are generous
+   - Avoids bets when odds are stingy
+   - No fixed thresholds to maintain
+
+2. **Maximizes Long-Term Profit**
+   - Each bet has positive expected return
+   - Portfolio of bets compounds over time
+   - More mathematically sound approach
+
+3. **Handles All Scenarios**
+   - Finds value in favorites when underpriced
+   - Finds value in underdogs when overpriced
+   - Automatically balances risk/reward
+
+4. **Easier to Explain**
+   - "We only bet when expected profit > 5%"
+   - Simple, transparent rule
+   - Aligns with customer goals (profit)
+
+**Optimal EV Thresholds:**
+
+```
+Conservative: min_ev = 0.10 (10%)
+- Fewer bets, higher confidence
+- 60-80 bets per month on Top 5 leagues
+- Higher win rate, lower volume
+
+Balanced: min_ev = 0.05 (5%)
+- Moderate bet frequency
+- 120-150 bets per month
+- Good balance of volume and quality
+
+Aggressive: min_ev = 0.02 (2%)
+- More bets, including marginal opportunities
+- 180-220 bets per month
+- Lower win rate but higher total profit potential
+```
+
+**Implementation Steps:**
+
+1. **Add EV Calculation to Prediction Pipeline**
+   ```python
+   # In scripts/predict_production.py
+   from src.betting.ev_strategy import should_bet_ev_strategy
+
+   # After model prediction
+   bet_recommendation = should_bet_ev_strategy(
+       home_prob=probs['home'],
+       draw_prob=probs['draw'],
+       away_prob=probs['away'],
+       home_odds=best_odds['home'],
+       draw_odds=best_odds['draw'],
+       away_odds=best_odds['away'],
+       min_ev=0.05
+   )
+   ```
+
+2. **Create EV Strategy Module**
+   ```bash
+   # New file: src/betting/ev_strategy.py
+   # Implement EV calculation and decision logic
+   ```
+
+3. **Backtest EV Strategy**
+   ```python
+   # Compare results on January 2026 data:
+   # - Current probability thresholds
+   # - EV-based approach (min_ev = 0.05)
+   # - EV-based approach (min_ev = 0.10)
+   ```
+
+4. **A/B Test in Production**
+   ```python
+   # Run both strategies simultaneously
+   # Track performance over 30-60 days
+   # Compare profit, ROI, win rate, volume
+   ```
+
+**Expected Results (Hypothesis):**
+
+Based on typical +EV betting performance:
+- **Total bets**: Similar or slightly lower than current (140-160 vs 148)
+- **Win rate**: Potentially higher (55-58% vs 52%)
+- **ROI**: Potentially 5-10% higher (33-38% vs 28.3%)
+- **Profit**: $50-60 vs current $41.81
+
+**Risks to Consider:**
+
+1. **Odds Movement**: Best odds may not be available when bet is placed
+2. **Model Calibration**: EV assumes probabilities are accurate
+3. **Market Efficiency**: Top leagues are well-priced, edges are small
+4. **Liquidity**: High-value bets may have lower stake limits
+
+**Recommendation:**
+
+1. Implement EV strategy as **optional module**
+2. Backtest on historical data (Jan-Feb 2026)
+3. Compare against current probability thresholds
+4. If results are positive (>10% improvement), consider A/B test
+5. Could offer as **premium tier** ("Pro EV Strategy")
+
+---
+
 ### Enable Real Lineup-Based Player Features
 
 **Current Implementation:**
