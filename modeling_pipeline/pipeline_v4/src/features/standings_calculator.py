@@ -65,7 +65,8 @@ class StandingsCalculator:
         relevant_fixtures = fixtures_df[mask].copy()
         
         if len(relevant_fixtures) == 0:
-            logger.warning(f"No fixtures found for season {season_id}, league {league_id} before {as_of_date}")
+            # This is normal for first fixtures of a season
+            logger.debug(f"No fixtures found for season {season_id}, league {league_id} before {as_of_date} (likely season opener)")
             return pd.DataFrame()
         
         # Calculate standings

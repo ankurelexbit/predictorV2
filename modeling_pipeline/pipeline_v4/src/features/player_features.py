@@ -308,12 +308,136 @@ class PlayerFeatureCalculator:
         """
         Get count of sidelined players (injured/suspended).
 
-        For historical data, we don't have point-in-time sidelined info,
-        so we return a conservative estimate.
+        Tries to load actual sidelined data if available, otherwise estimates
+        based on fixture congestion and time of season.
+
+        Args:
+            team_id: Team ID
+            as_of_date: Date to check sidelined status
+
+        Returns:
+            Number of players unavailable (injured/suspended)
         """
-        # In production, this would check sidelined data
-        # For training, we use conservative estimates
-        return 1  # Assume 1 player unavailable on average
+        # Try to load actual sidelined data if available
+        sidelined_count = self._load_sidelined_data(team_id, as_of_date)
+        if sidelined_count is not None:
+            return sidelined_count
+
+        # Fallback: Estimate based on fixture congestion and season timing
+        return self._estimate_sidelined_count(team_id, as_of_date)
+
+    def _load_sidelined_data(
+        self,
+        team_id: int,
+        as_of_date: datetime
+    ) -> Optional[int]:
+        """
+        Try to load actual sidelined data from JSON files.
+
+        Args:
+            team_id: Team ID
+            as_of_date: Date to check sidelined status
+
+        Returns:
+            Number of sidelined players if data available, None otherwise
+        """
+        import os
+        import json
+
+        # Check if sidelined data exists
+        sidelined_file = f"data/historical/sidelined/team_{team_id}.json"
+
+        if not os.path.exists(sidelined_file):
+            return None
+
+        try:
+            with open(sidelined_file, 'r') as f:
+                sidelined_data = json.load(f)
+
+            # Count players sidelined on this date
+            unavailable_count = 0
+            for player in sidelined_data:
+                # Parse start and end dates
+                start_date = pd.to_datetime(player.get('start_date'))
+                end_date_str = player.get('end_date')
+                end_date = pd.to_datetime(end_date_str) if end_date_str else as_of_date + timedelta(days=365)
+
+                # Check if player was sidelined on this date
+                if start_date <= as_of_date <= end_date:
+                    unavailable_count += 1
+
+            return unavailable_count if unavailable_count > 0 else 1
+
+        except Exception as e:
+            logger.debug(f"Could not load sidelined data for team {team_id}: {e}")
+            return None
+
+    def _estimate_sidelined_count(
+        self,
+        team_id: int,
+        as_of_date: datetime
+    ) -> int:
+        """
+        Estimate sidelined players based on fixture congestion and timing.
+
+        Professional teams typically have 1-3 players unavailable at any time.
+        This varies based on:
+        - Fixture congestion (more games = more fatigue/injuries)
+        - Time of season (December/April have higher injury rates)
+        - Team depth and playing style
+
+        Args:
+            team_id: Team ID
+            as_of_date: Date to estimate for
+
+        Returns:
+            Estimated number of unavailable players (1-5)
+        """
+        base_unavailable = 2  # Average team has 2 players out
+
+        # Factor 1: Fixture congestion (recent match frequency)
+        congestion_factor = 0
+        if self.data_loader and hasattr(self.data_loader, 'get_team_fixtures'):
+            try:
+                # Check how many matches in last 14 days
+                last_2_weeks = self.data_loader.get_team_fixtures(
+                    team_id,
+                    before_date=as_of_date,
+                    limit=10
+                )
+
+                if len(last_2_weeks) > 0:
+                    # Count matches in last 14 days
+                    recent_matches = 0
+                    two_weeks_ago = as_of_date - timedelta(days=14)
+
+                    for _, match in last_2_weeks.iterrows():
+                        match_date = pd.to_datetime(match['starting_at'])
+                        if match_date >= two_weeks_ago:
+                            recent_matches += 1
+
+                    # More than 3 matches in 2 weeks = congested
+                    if recent_matches >= 4:
+                        congestion_factor = 2  # +2 injuries
+                    elif recent_matches >= 3:
+                        congestion_factor = 1  # +1 injury
+
+            except Exception as e:
+                logger.debug(f"Could not calculate congestion for team {team_id}: {e}")
+
+        # Factor 2: Time of season (injury-prone periods)
+        season_factor = 0
+        month = as_of_date.month
+
+        # December/January (winter congestion) and March/April (fatigue accumulation)
+        if month in [12, 1, 4]:
+            season_factor = 1  # +1 injury during high-risk months
+        elif month in [3, 5]:
+            season_factor = 0  # Slightly elevated
+
+        # Calculate total (cap at 1-5 range)
+        total_unavailable = base_unavailable + congestion_factor + season_factor
+        return max(1, min(5, total_unavailable))
 
     def _calculate_team_form_indicator(
         self,

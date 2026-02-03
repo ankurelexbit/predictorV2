@@ -17,7 +17,7 @@ from src.features.pillar2_modern_analytics import Pillar2ModernAnalyticsEngine
 from src.features.pillar3_hidden_edges import Pillar3HiddenEdgesEngine
 
 try:
-    from config.model_config import EloConfig
+    from config.production_config import EloConfig
 except ImportError:
     # Fallback to defaults if config not available
     class EloConfig:

@@ -123,7 +123,7 @@ class Pillar2ModernAnalyticsEngine:
             'home_xg_from_corners_5': home_stats['xg_corners_5'],
             'away_xg_from_corners_5': away_stats['xg_corners_5'],
             
-            # xG trends
+            # xG trends (using up to 10 matches, minimum 2 for trend)
             'home_xg_trend_10': home_stats['xg_trend_10'],
             'away_xg_trend_10': away_stats['xg_trend_10'],
             'home_xga_trend_10': home_stats['xga_trend_10'],
@@ -179,8 +179,8 @@ class Pillar2ModernAnalyticsEngine:
             'big_chances_5': float(np.mean(big_chances_5)) if big_chances_5 else 0.0,
             'big_chance_conversion_5': 0.3,  # Approximation
             'xg_corners_5': 0.1,  # Approximation
-            'xg_trend_10': self._calculate_trend(xg_values[:10]) if len(xg_values) >= 10 else 0.0,
-            'xga_trend_10': self._calculate_trend(xga_values[:10]) if len(xga_values) >= 10 else 0.0,
+            'xg_trend_10': self._calculate_trend(xg_values[:10]) if len(xg_values) >= 2 else 0.0,
+            'xga_trend_10': self._calculate_trend(xga_values[:10]) if len(xga_values) >= 2 else 0.0,
         }
     
     def _derive_xg_from_stats(self, stats: Dict) -> float:
@@ -197,12 +197,25 @@ class Pillar2ModernAnalyticsEngine:
     def _extract_team_stats(self, match: pd.Series, is_home: bool) -> Dict:
         """Extract team statistics from match row (CSV columns)."""
         prefix = 'home_' if is_home else 'away_'
-        
+
+        shots_total = match.get(f'{prefix}shots_total', 0) or 0
+        shots_on_target = match.get(f'{prefix}shots_on_target', 0) or 0
+        shots_inside_box = match.get(f'{prefix}shots_inside_box', 0) or 0
+
+        # Calculate big chances (high-quality opportunities)
+        # Big chance = shot inside box that's on target (high probability of scoring)
+        # Formula: Estimate as shots inside box weighted by accuracy
+        if shots_total > 0:
+            accuracy = shots_on_target / shots_total
+            big_chances = shots_inside_box * accuracy * 0.8  # ~80% of accurate inside-box shots are big chances
+        else:
+            big_chances = 0
+
         return {
-            'shots_total': match.get(f'{prefix}shots_total', 0) or 0,
-            'shots_on_target': match.get(f'{prefix}shots_on_target', 0) or 0,
-            'shots_inside_box': match.get(f'{prefix}shots_inside_box', 0) or 0,
-            'big_chances_created': 0,  # Not in CSV, placeholder
+            'shots_total': shots_total,
+            'shots_on_target': shots_on_target,
+            'shots_inside_box': shots_inside_box,
+            'big_chances_created': big_chances,
         }
     
     def _empty_xg_stats(self) -> Dict:
@@ -217,11 +230,18 @@ class Pillar2ModernAnalyticsEngine:
     
     def _calculate_trend(self, values: list) -> float:
         """Calculate linear trend (slope)."""
-        if len(values) < 2:
+        # Filter out NaN values
+        clean_values = [v for v in values if not (isinstance(v, float) and np.isnan(v))]
+
+        if len(clean_values) < 2:
             return 0.0
-        x = np.arange(len(values))
-        slope = np.polyfit(x, values, 1)[0]
-        return float(slope)
+
+        x = np.arange(len(clean_values))
+        try:
+            slope = np.polyfit(x, clean_values, 1)[0]
+            return float(slope) if not np.isnan(slope) else 0.0
+        except:
+            return 0.0
     
     def _get_shot_features(
         self,

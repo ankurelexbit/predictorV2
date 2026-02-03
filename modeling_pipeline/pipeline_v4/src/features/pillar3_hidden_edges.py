@@ -238,6 +238,16 @@ class Pillar3HiddenEdgesEngine:
         home_vs_bottom = self._calculate_performance_vs_group(home_team_id, home_recent, bottom_6_teams)
         away_vs_bottom = self._calculate_performance_vs_group(away_team_id, away_recent, bottom_6_teams)
         
+        # Calculate xG performance vs different opposition groups
+        xg_vs_groups = self._calculate_xg_vs_opposition_groups(
+            home_team_id=home_team_id,
+            away_team_id=away_team_id,
+            season_id=season_id,
+            league_id=league_id,
+            as_of_date=as_of_date,
+            fixtures_df=fixtures_df
+        )
+
         return {
             'home_avg_opponent_elo_5': float(np.mean(home_opp_elos)) if home_opp_elos else 1500.0,
             'away_avg_opponent_elo_5': float(np.mean(away_opp_elos)) if away_opp_elos else 1500.0,
@@ -245,10 +255,10 @@ class Pillar3HiddenEdgesEngine:
             'away_points_vs_top_6': float(away_vs_top['points']),
             'home_points_vs_bottom_6': float(home_vs_bottom['points']),
             'away_points_vs_bottom_6': float(away_vs_bottom['points']),
-            'home_xg_vs_top_half': 1.2,  # Placeholder
-            'away_xg_vs_top_half': 1.1,
-            'home_xga_vs_bottom_half': 0.8,
-            'away_xga_vs_bottom_half': 0.9,
+            'home_xg_vs_top_half': xg_vs_groups['home_xg_vs_top_half'],
+            'away_xg_vs_top_half': xg_vs_groups['away_xg_vs_top_half'],
+            'home_xga_vs_bottom_half': xg_vs_groups['home_xga_vs_bottom_half'],
+            'away_xga_vs_bottom_half': xg_vs_groups['away_xga_vs_bottom_half'],
         }
     
     def _calculate_performance_vs_group(
@@ -277,7 +287,172 @@ class Pillar3HiddenEdgesEngine:
                 matches += 1
         
         return {'points': points, 'matches': matches}
-    
+
+    def _calculate_xg_vs_opposition_groups(
+        self,
+        home_team_id: int,
+        away_team_id: int,
+        season_id: int,
+        league_id: int,
+        as_of_date: datetime,
+        fixtures_df: pd.DataFrame
+    ) -> Dict:
+        """
+        Calculate xG performance vs top/bottom half opponents.
+
+        This helps identify teams that perform differently against strong vs weak opposition.
+
+        Args:
+            home_team_id: Home team ID
+            away_team_id: Away team ID
+            season_id: Season ID
+            league_id: League ID
+            as_of_date: Calculate using data before this date
+            fixtures_df: All fixtures for context
+
+        Returns:
+            Dictionary with 4 xG vs opposition strength metrics
+        """
+        # Get current league standings to classify teams
+        try:
+            standings = self.standings_calc.calculate_standings_at_date(
+                fixtures_df=fixtures_df,
+                season_id=season_id,
+                league_id=league_id,
+                as_of_date=as_of_date
+            )
+        except Exception as e:
+            logger.debug(f"Could not calculate standings for xG vs groups: {e}")
+            # Return defaults if standings unavailable
+            return {
+                'home_xg_vs_top_half': 1.2,
+                'away_xg_vs_top_half': 1.1,
+                'home_xga_vs_bottom_half': 0.8,
+                'away_xga_vs_bottom_half': 0.9,
+            }
+
+        # Need at least 4 teams to split into top/bottom
+        if len(standings) < 4:
+            return {
+                'home_xg_vs_top_half': 1.2,
+                'away_xg_vs_top_half': 1.1,
+                'home_xga_vs_bottom_half': 0.8,
+                'away_xga_vs_bottom_half': 0.9,
+            }
+
+        # Split league into top/bottom half based on current standings
+        mid_point = len(standings) // 2
+        top_half_teams = set(standings.iloc[:mid_point]['team_id'])
+        bottom_half_teams = set(standings.iloc[mid_point:]['team_id'])
+
+        # Calculate home team's performance vs each group
+        home_xg_vs_top = self._calculate_xg_vs_opposition_group(
+            team_id=home_team_id,
+            opposition_group=top_half_teams,
+            as_of_date=as_of_date,
+            metric='xg'
+        )
+
+        home_xga_vs_bottom = self._calculate_xg_vs_opposition_group(
+            team_id=home_team_id,
+            opposition_group=bottom_half_teams,
+            as_of_date=as_of_date,
+            metric='xga'
+        )
+
+        # Calculate away team's performance vs each group
+        away_xg_vs_top = self._calculate_xg_vs_opposition_group(
+            team_id=away_team_id,
+            opposition_group=top_half_teams,
+            as_of_date=as_of_date,
+            metric='xg'
+        )
+
+        away_xga_vs_bottom = self._calculate_xg_vs_opposition_group(
+            team_id=away_team_id,
+            opposition_group=bottom_half_teams,
+            as_of_date=as_of_date,
+            metric='xga'
+        )
+
+        return {
+            'home_xg_vs_top_half': home_xg_vs_top,
+            'away_xg_vs_top_half': away_xg_vs_top,
+            'home_xga_vs_bottom_half': home_xga_vs_bottom,
+            'away_xga_vs_bottom_half': away_xga_vs_bottom,
+        }
+
+    def _calculate_xg_vs_opposition_group(
+        self,
+        team_id: int,
+        opposition_group: set,
+        as_of_date: datetime,
+        metric: str = 'xg'
+    ) -> float:
+        """
+        Calculate average xG/xGA against a specific group of opponents.
+
+        Args:
+            team_id: Team to calculate for
+            opposition_group: Set of opponent team IDs to filter by
+            as_of_date: Calculate using only matches before this date
+            metric: Either 'xg' (expected goals) or 'xga' (expected goals against)
+
+        Returns:
+            Average xG or xGA per match against this opposition group
+        """
+        # Get team's recent matches (last 20 for better sample size)
+        try:
+            recent_matches = self.data_loader.get_team_fixtures(
+                team_id=team_id,
+                before_date=as_of_date,
+                limit=20
+            )
+        except Exception as e:
+            logger.debug(f"Could not get fixtures for team {team_id}: {e}")
+            return 1.2 if metric == 'xg' else 0.8  # Default fallback
+
+        if len(recent_matches) == 0:
+            return 1.2 if metric == 'xg' else 0.8  # Default fallback
+
+        # Filter to only matches against the specified opposition group
+        xg_values = []
+
+        for _, match in recent_matches.iterrows():
+            is_home = match['home_team_id'] == team_id
+            opponent_id = match['away_team_id'] if is_home else match['home_team_id']
+
+            # Skip if opponent not in the target group
+            if opponent_id not in opposition_group:
+                continue
+
+            # Get shot statistics for this match
+            prefix = 'home_' if is_home else 'away_'
+            opponent_prefix = 'away_' if is_home else 'home_'
+
+            shots_on_target = match.get(f'{prefix}shots_on_target', 0) or 0
+            shots_inside_box = match.get(f'{prefix}shots_inside_box', 0) or 0
+            opp_shots_on_target = match.get(f'{opponent_prefix}shots_on_target', 0) or 0
+            opp_shots_inside_box = match.get(f'{opponent_prefix}shots_inside_box', 0) or 0
+
+            # Calculate derived xG using same formula as Pillar 2
+            if metric == 'xg':
+                # Team's expected goals
+                xg = (shots_on_target * 0.35) + (shots_inside_box * 0.15)
+            else:  # 'xga'
+                # Expected goals against (opponent's xG)
+                xg = (opp_shots_on_target * 0.35) + (opp_shots_inside_box * 0.15)
+
+            # Skip NaN values (from missing statistics)
+            if not (isinstance(xg, float) and np.isnan(xg)):
+                xg_values.append(xg)
+
+        # Return average, or default if no matches against this group
+        if len(xg_values) == 0:
+            return 1.2 if metric == 'xg' else 0.8
+
+        return float(np.mean(xg_values))
+
     def _get_player_quality_features(
         self,
         home_team_id: int,
@@ -349,11 +524,25 @@ class Pillar3HiddenEdgesEngine:
         
         home_pts = home_standing.iloc[0]['points'] if len(home_standing) > 0 else 0
         away_pts = away_standing.iloc[0]['points'] if len(away_standing) > 0 else 0
-        
-        # Rest days (placeholder)
-        home_rest = 7
-        away_rest = 7
-        
+
+        # Calculate actual rest days
+        home_last_match = self.data_loader.get_team_fixtures(home_team_id, as_of_date, limit=1)
+        away_last_match = self.data_loader.get_team_fixtures(away_team_id, as_of_date, limit=1)
+
+        if len(home_last_match) > 0:
+            home_rest = (as_of_date - home_last_match.iloc[0]['starting_at']).days
+            # Cap at reasonable maximum (60 days) and minimum (2 days)
+            home_rest = max(2, min(60, home_rest))
+        else:
+            home_rest = 7  # Default if no previous match
+
+        if len(away_last_match) > 0:
+            away_rest = (as_of_date - away_last_match.iloc[0]['starting_at']).days
+            # Cap at reasonable maximum (60 days) and minimum (2 days)
+            away_rest = max(2, min(60, away_rest))
+        else:
+            away_rest = 7  # Default if no previous match
+
         return {
             'home_points_from_relegation': int(home_pts - relegation_points),
             'away_points_from_relegation': int(away_pts - relegation_points),
@@ -362,7 +551,7 @@ class Pillar3HiddenEdgesEngine:
             'home_days_since_last_match': home_rest,
             'away_days_since_last_match': away_rest,
             'rest_advantage': home_rest - away_rest,
-            'is_derby_match': 0,  # Would need geographic data
+            'is_derby_match': self._is_derby_match(home_team_id, away_team_id),
         }
 
     def _get_draw_parity_features(
@@ -532,3 +721,56 @@ class Pillar3HiddenEdgesEngine:
                 goals.append(opp_score)
 
         return float(np.mean(goals)) if goals else 1.0
+
+    def _is_derby_match(self, home_team_id: int, away_team_id: int) -> int:
+        """
+        Detect if this is a derby match (local rivalry).
+
+        Known derby pairs based on SportMonks team IDs:
+        - Manchester derby: Man United (14) vs Man City (15)
+        - North London derby: Arsenal (18) vs Tottenham (6)
+        - Merseyside derby: Liverpool (1) vs Everton (7)
+        - Milan derby: AC Milan (9) vs Inter Milan (10)
+        - Madrid derby: Real Madrid (3) vs Atletico Madrid (13)
+        - Glasgow derby: Celtic (102) vs Rangers (103)
+        - Rome derby: Roma (5) vs Lazio (12)
+        - Seville derby: Sevilla (4) vs Real Betis (11)
+
+        Returns:
+            1 if derby match, 0 otherwise
+        """
+        # Define known derby pairs (can be extended)
+        DERBY_PAIRS = {
+            # Premier League
+            frozenset([14, 15]),   # Manchester derby
+            frozenset([18, 6]),    # North London derby
+            frozenset([1, 7]),     # Merseyside derby
+            frozenset([8, 52]),    # Chelsea vs Arsenal (London derby)
+            frozenset([8, 6]),     # Chelsea vs Tottenham (London derby)
+            frozenset([18, 52]),   # West Ham vs Arsenal (London derby)
+
+            # La Liga
+            frozenset([3, 13]),    # Madrid derby
+            frozenset([4, 11]),    # Seville derby
+            frozenset([2, 17]),    # El Clasico (Barcelona vs Real Madrid)
+
+            # Serie A
+            frozenset([9, 10]),    # Milan derby
+            frozenset([5, 12]),    # Rome derby
+            frozenset([16, 19]),   # Turin derby (Juventus vs Torino)
+
+            # Bundesliga
+            frozenset([20, 21]),   # Ruhr derby (Dortmund vs Schalke)
+            frozenset([22, 23]),   # Munich derby (Bayern vs 1860)
+
+            # Ligue 1
+            frozenset([25, 26]),   # Lyon vs Saint-Étienne
+            frozenset([27, 28]),   # Paris derby (PSG vs Paris FC)
+
+            # Scottish Premiership
+            frozenset([102, 103]), # Old Firm (Celtic vs Rangers)
+        }
+
+        # Check if this pair is a derby
+        match_pair = frozenset([home_team_id, away_team_id])
+        return 1 if match_pair in DERBY_PAIRS else 0

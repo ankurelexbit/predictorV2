@@ -16,6 +16,26 @@ from pathlib import Path
 import re
 
 # ============================================================================
+# ELO RATING CONFIGURATION
+# ============================================================================
+
+class EloConfig:
+    """Elo rating system configuration."""
+
+    K_FACTOR = 32  # Update speed (higher = more responsive to recent results)
+    HOME_ADVANTAGE = 35  # Home team Elo bonus (calibrated for modern football)
+    INITIAL_ELO = 1500  # Starting Elo for new teams
+
+    @classmethod
+    def get_params(cls):
+        """Get Elo parameters as dict."""
+        return {
+            'k_factor': cls.K_FACTOR,
+            'home_advantage': cls.HOME_ADVANTAGE,
+            'initial_elo': cls.INITIAL_ELO
+        }
+
+# ============================================================================
 # MODEL CONFIGURATION
 # ============================================================================
 

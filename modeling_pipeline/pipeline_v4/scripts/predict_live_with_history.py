@@ -44,7 +44,7 @@ from src.features import (
 from src.features.standings_calculator import StandingsCalculator
 
 try:
-    from config.model_config import EloConfig
+    from config.production_config import EloConfig
 except ImportError:
     # Fallback to defaults if config not available
     class EloConfig:

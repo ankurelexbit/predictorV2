@@ -595,6 +595,121 @@ See `docs/PNL_TRACKING.md` for complete guide.
 
 ---
 
+## 📈 Prediction History Tracking
+
+**NEW:** The database now tracks prediction changes over time. When you run predictions daily for upcoming matches, each prediction is stored as a new record rather than overwriting the previous one.
+
+### Why Track Prediction History?
+
+- **See prediction stability**: How much do probabilities change as match approaches?
+- **Compare baseline vs final**: Morning predictions vs pre-match predictions (useful with lineup integration)
+- **Build confidence**: Stable predictions indicate higher confidence
+- **Understand model behavior**: Track how new data affects probabilities
+
+### Migration (One-Time)
+
+If you have an existing database, run the migration to enable history tracking:
+
+```bash
+export DATABASE_URL="postgresql://..."
+python3 scripts/migrate_prediction_history.py
+```
+
+This removes the unique constraint on `(fixture_id, model_version)` so multiple predictions can be stored.
+
+### Example Workflow
+
+```bash
+# Day 7 before match - Initial prediction
+python3 scripts/predict_production.py --days-ahead 7
+
+# Day 3 before match - Updated prediction
+python3 scripts/predict_production.py --days-ahead 7
+
+# Day 1 before match - Final prediction
+python3 scripts/predict_production.py --days-ahead 7
+
+# View how predictions changed over time
+python3 scripts/view_prediction_history.py --fixture-id 12345 --timeline
+```
+
+### View Prediction Timeline
+
+```bash
+# Show latest prediction for a fixture
+python3 scripts/view_prediction_history.py --fixture-id 12345
+
+# Show complete timeline (all predictions over time)
+python3 scripts/view_prediction_history.py --fixture-id 12345 --timeline
+
+# Analyze how predictions changed
+python3 scripts/view_prediction_history.py --fixture-id 12345 --analyze
+
+# View fixtures with most prediction updates
+python3 scripts/view_prediction_history.py --top-tracked
+```
+
+**Example Timeline Output:**
+```
+================================================================================
+PREDICTION TIMELINE - Fixture 12345
+================================================================================
+Match: Manchester United vs Liverpool
+Match Date: 2026-02-15 15:00:00
+Total Predictions: 5
+================================================================================
+
+#    Date/Time            Home     Draw     Away     Predicted  Bet?
+--------------------------------------------------------------------------------
+1    2026-02-08 09:00:00  45.2%    28.1%    26.7%    H
+2    2026-02-10 09:00:00  46.8%    27.3%    25.9%    H
+3    2026-02-12 09:00:00  48.1%    26.5%    25.4%    H          ✓
+4    2026-02-14 09:00:00  47.9%    27.0%    25.1%    H          ✓
+5    2026-02-15 13:00:00  49.2%    26.2%    24.6%    H          ✓
+```
+
+### Programmatic Access
+
+```python
+from src.database.supabase_client import SupabaseClient
+
+db = SupabaseClient(database_url)
+
+# Get latest prediction
+latest = db.get_latest_prediction(fixture_id=12345)
+
+# Get complete timeline
+timeline = db.get_prediction_timeline(fixture_id=12345)
+
+# Analyze changes
+analysis = db.get_prediction_changes(fixture_id=12345)
+
+print(f"Home probability changed by: {analysis['probability_changes']['home']['change_pct']:.1f}%")
+print(f"Prediction volatility: {analysis['probability_changes']['home']['volatility']:.1%}")
+```
+
+**Key Metrics:**
+- `probability_changes`: How each outcome's probability changed (initial → latest)
+- `volatility`: Average absolute change between consecutive predictions
+- `outcome_change`: Whether predicted outcome switched (e.g., H → D)
+- `betting_change`: Whether bet recommendation changed
+
+### Benefits for Production
+
+1. **Daily Predictions**: Run once daily (morning) to build prediction history
+2. **Confidence Building**: Stable predictions over 7 days = higher confidence
+3. **Lineup Integration (Future)**: Compare historical baseline vs lineup-adjusted predictions
+4. **Model Validation**: Track whether early predictions match final predictions
+5. **Customer Trust**: Show prediction timeline to demonstrate consistency
+
+### Database Impact
+
+- **No performance impact**: Indexes on `(fixture_id, prediction_timestamp)` keep queries fast
+- **Storage**: ~5KB per prediction × 7 predictions per fixture = ~35KB per match
+- **Cleanup**: Old predictions can be archived after match completes
+
+---
+
 ## 🔄 Weekly Retraining
 
 Automated weekly pipeline to keep model fresh with Option 3 configuration:
@@ -806,6 +921,101 @@ Store predictions in Supabase
 ---
 
 ## 📝 Future Improvements / TODO
+
+### Real-Time Lineup Integration (High Priority)
+
+**Current Limitation:**
+- Model uses **historical team strength**, NOT actual announced lineups
+- Predictions are based on average player quality from past 5 matches
+- **Does NOT update** when lineups are announced 60-90 min before kickoff
+
+**Impact:**
+- **Small impact** (±2-5%): Regular matches with expected lineups
+- **Large impact** (±10-20%): Heavy rotation, key injuries, cup matches
+
+**Example Problem:**
+```
+Morning prediction (8am):
+  Man City vs Burnley → Home: 75%, Draw: 15%, Away: 10%
+  (Based on historical City strength with Haaland, De Bruyne, etc.)
+
+Lineup announced (2pm):
+  🚨 Haaland BENCHED
+  🚨 De Bruyne INJURED
+  🚨 5 rotation players starting
+
+Current model: STILL predicts 75% home win ❌
+Accurate prediction should be: ~60% home win ✅
+```
+
+**Implementation Plan:**
+
+1. **Fetch Real-Time Lineups from API**
+   ```python
+   # Add to predict_production.py
+   def fetch_confirmed_lineup(fixture_id):
+       """Get confirmed starting XI from SportMonks API."""
+       url = f"{API_BASE}/fixtures/{fixture_id}?include=lineups"
+       response = requests.get(url, params={'api_token': API_KEY})
+       return parse_lineup(response.json())
+   ```
+
+2. **Calculate Lineup-Specific Features**
+   ```python
+   # New features to add
+   - actual_lineup_avg_rating (vs historical average)
+   - key_players_starting (binary: Haaland/Salah/Kane playing?)
+   - rotation_count (how many changes from usual XI)
+   - injured_stars_missing (impact of missing key players)
+   - lineup_confirmed (flag: True/False)
+   ```
+
+3. **Update Prediction Pipeline**
+   ```python
+   # Morning: Baseline prediction (historical)
+   morning_prediction = predict_with_historical_data()
+
+   # Pre-match: Final prediction (with lineup if available)
+   if lineup_available(fixture_id):
+       lineup = fetch_confirmed_lineup(fixture_id)
+       features = recalculate_features_with_lineup(lineup)
+       final_prediction = predict_with_lineup(features)
+       final_prediction['lineup_confirmed'] = True
+   else:
+       final_prediction = morning_prediction
+       final_prediction['lineup_confirmed'] = False
+   ```
+
+4. **Store Both Predictions**
+   ```sql
+   -- Baseline prediction (morning)
+   INSERT INTO predictions (fixture_id, prediction_type, lineup_confirmed, ...)
+   VALUES (12345, 'baseline', false, ...)
+
+   -- Final prediction (pre-match with lineup)
+   INSERT INTO predictions (fixture_id, prediction_type, lineup_confirmed, ...)
+   VALUES (12345, 'final', true, ...)
+   ```
+
+5. **Update Prediction Schedule**
+   ```bash
+   # Morning: Baseline predictions
+   0 8 * * * predict_production.py --days-ahead 7
+
+   # Pre-match: Final predictions with lineups (60-90 min before kickoff)
+   30 13 * * 6 predict_production.py --days-ahead 1 --update-with-lineups
+   30 18 * * 2,3 predict_production.py --days-ahead 1 --update-with-lineups
+   ```
+
+**Benefits:**
+- ✅ Captures critical lineup information (injuries, rotation, tactical changes)
+- ✅ More accurate predictions for actual match conditions
+- ✅ Especially valuable for cup matches and teams with European commitments
+- ✅ Provides both baseline and lineup-adjusted predictions for comparison
+
+**Estimated Effort:** 2-3 days implementation + testing
+
+---
 
 ### Marketing Strategies (To Explore)
 

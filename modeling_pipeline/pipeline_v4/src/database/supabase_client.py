@@ -97,10 +97,7 @@ class SupabaseClient:
                     -- Metadata
                     model_version VARCHAR(50) DEFAULT 'v4',
                     prediction_timestamp TIMESTAMP DEFAULT NOW(),
-                    updated_at TIMESTAMP DEFAULT NOW(),
-
-                    -- Unique constraint to prevent duplicate predictions
-                    UNIQUE(fixture_id, model_version)
+                    updated_at TIMESTAMP DEFAULT NOW()
                 );
 
                 -- Create indexes for common queries
@@ -108,6 +105,8 @@ class SupabaseClient:
                 CREATE INDEX IF NOT EXISTS idx_predictions_match_date ON predictions(match_date);
                 CREATE INDEX IF NOT EXISTS idx_predictions_should_bet ON predictions(should_bet);
                 CREATE INDEX IF NOT EXISTS idx_predictions_league ON predictions(league_id, match_date);
+                CREATE INDEX IF NOT EXISTS idx_predictions_fixture_timestamp ON predictions(fixture_id, prediction_timestamp DESC);
+                CREATE INDEX IF NOT EXISTS idx_predictions_fixture_model ON predictions(fixture_id, model_version, prediction_timestamp DESC);
             """)
 
             logger.info("✅ Database tables created successfully")
@@ -116,11 +115,14 @@ class SupabaseClient:
         """
         Store a single prediction in the database.
 
+        Now supports prediction history tracking - each prediction is stored as a new record
+        with its own timestamp, allowing you to track how predictions change over time.
+
         Args:
             prediction: Dictionary containing prediction data
 
         Returns:
-            ID of inserted/updated record
+            ID of inserted record
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
@@ -145,25 +147,6 @@ class SupabaseClient:
                     %(features)s,
                     %(model_version)s
                 )
-                ON CONFLICT (fixture_id, model_version)
-                DO UPDATE SET
-                    pred_home_prob = EXCLUDED.pred_home_prob,
-                    pred_draw_prob = EXCLUDED.pred_draw_prob,
-                    pred_away_prob = EXCLUDED.pred_away_prob,
-                    predicted_outcome = EXCLUDED.predicted_outcome,
-                    bet_outcome = EXCLUDED.bet_outcome,
-                    bet_probability = EXCLUDED.bet_probability,
-                    bet_odds = EXCLUDED.bet_odds,
-                    should_bet = EXCLUDED.should_bet,
-                    best_home_odds = EXCLUDED.best_home_odds,
-                    best_draw_odds = EXCLUDED.best_draw_odds,
-                    best_away_odds = EXCLUDED.best_away_odds,
-                    avg_home_odds = EXCLUDED.avg_home_odds,
-                    avg_draw_odds = EXCLUDED.avg_draw_odds,
-                    avg_away_odds = EXCLUDED.avg_away_odds,
-                    odds_count = EXCLUDED.odds_count,
-                    features = EXCLUDED.features,
-                    updated_at = NOW()
                 RETURNING id
             """, prediction)
 
@@ -190,6 +173,9 @@ class SupabaseClient:
     def store_predictions_batch(self, predictions: List[Dict]) -> int:
         """
         Store multiple predictions in a batch.
+
+        Now supports prediction history tracking - each prediction is stored as a new record,
+        allowing you to track how predictions change over time (e.g., 7 days before → 1 day before).
 
         Args:
             predictions: List of prediction dictionaries
@@ -234,28 +220,9 @@ class SupabaseClient:
                     features,
                     model_version
                 ) VALUES %s
-                ON CONFLICT (fixture_id, model_version)
-                DO UPDATE SET
-                    pred_home_prob = EXCLUDED.pred_home_prob,
-                    pred_draw_prob = EXCLUDED.pred_draw_prob,
-                    pred_away_prob = EXCLUDED.pred_away_prob,
-                    predicted_outcome = EXCLUDED.predicted_outcome,
-                    bet_outcome = EXCLUDED.bet_outcome,
-                    bet_probability = EXCLUDED.bet_probability,
-                    bet_odds = EXCLUDED.bet_odds,
-                    should_bet = EXCLUDED.should_bet,
-                    best_home_odds = EXCLUDED.best_home_odds,
-                    best_draw_odds = EXCLUDED.best_draw_odds,
-                    best_away_odds = EXCLUDED.best_away_odds,
-                    avg_home_odds = EXCLUDED.avg_home_odds,
-                    avg_draw_odds = EXCLUDED.avg_draw_odds,
-                    avg_away_odds = EXCLUDED.avg_away_odds,
-                    odds_count = EXCLUDED.odds_count,
-                    features = EXCLUDED.features,
-                    updated_at = NOW()
             """, values)
 
-            logger.info(f"✅ Stored {len(predictions)} predictions in database")
+            logger.info(f"✅ Stored {len(predictions)} predictions in database (history tracking enabled)")
             return len(predictions)
 
     def update_actual_result(self, fixture_id: int, home_score: int, away_score: int,
@@ -649,3 +616,183 @@ class SupabaseClient:
                     'end_date': end_date
                 }
             }
+
+    def get_latest_prediction(self, fixture_id: int, model_version: str = None) -> Optional[Dict]:
+        """
+        Get the most recent prediction for a fixture.
+
+        Args:
+            fixture_id: Fixture ID
+            model_version: Optional model version filter
+
+        Returns:
+            Latest prediction dictionary or None
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            if model_version:
+                cursor.execute("""
+                    SELECT id, fixture_id, match_date, home_team_name, away_team_name,
+                           pred_home_prob, pred_draw_prob, pred_away_prob, predicted_outcome,
+                           bet_outcome, bet_probability, should_bet,
+                           model_version, prediction_timestamp
+                    FROM predictions
+                    WHERE fixture_id = %s AND model_version = %s
+                    ORDER BY prediction_timestamp DESC
+                    LIMIT 1
+                """, (fixture_id, model_version))
+            else:
+                cursor.execute("""
+                    SELECT id, fixture_id, match_date, home_team_name, away_team_name,
+                           pred_home_prob, pred_draw_prob, pred_away_prob, predicted_outcome,
+                           bet_outcome, bet_probability, should_bet,
+                           model_version, prediction_timestamp
+                    FROM predictions
+                    WHERE fixture_id = %s
+                    ORDER BY prediction_timestamp DESC
+                    LIMIT 1
+                """, (fixture_id,))
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            columns = [desc[0] for desc in cursor.description]
+            return dict(zip(columns, row))
+
+    def get_prediction_timeline(self, fixture_id: int, model_version: str = None) -> List[Dict]:
+        """
+        Get all predictions for a fixture ordered by time (oldest to newest).
+
+        This shows how your predictions evolved over time as the match approached.
+        Useful for understanding prediction stability and confidence changes.
+
+        Args:
+            fixture_id: Fixture ID
+            model_version: Optional model version filter
+
+        Returns:
+            List of predictions ordered by timestamp (oldest first)
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            if model_version:
+                cursor.execute("""
+                    SELECT id, fixture_id, match_date, home_team_name, away_team_name,
+                           pred_home_prob, pred_draw_prob, pred_away_prob, predicted_outcome,
+                           bet_outcome, bet_probability, should_bet,
+                           model_version, prediction_timestamp,
+                           actual_result, bet_won, bet_profit
+                    FROM predictions
+                    WHERE fixture_id = %s AND model_version = %s
+                    ORDER BY prediction_timestamp ASC
+                """, (fixture_id, model_version))
+            else:
+                cursor.execute("""
+                    SELECT id, fixture_id, match_date, home_team_name, away_team_name,
+                           pred_home_prob, pred_draw_prob, pred_away_prob, predicted_outcome,
+                           bet_outcome, bet_probability, should_bet,
+                           model_version, prediction_timestamp,
+                           actual_result, bet_won, bet_profit
+                    FROM predictions
+                    WHERE fixture_id = %s
+                    ORDER BY prediction_timestamp ASC
+                """, (fixture_id,))
+
+            columns = [desc[0] for desc in cursor.description]
+            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    def get_prediction_changes(self, fixture_id: int, model_version: str = None) -> Dict:
+        """
+        Analyze how predictions changed over time for a fixture.
+
+        Returns detailed change analysis showing:
+        - How probabilities shifted
+        - Whether predicted outcome changed
+        - Prediction stability metrics
+
+        Args:
+            fixture_id: Fixture ID
+            model_version: Optional model version filter
+
+        Returns:
+            Dictionary with change analysis
+        """
+        timeline = self.get_prediction_timeline(fixture_id, model_version)
+
+        if not timeline:
+            return {'error': 'No predictions found'}
+
+        if len(timeline) == 1:
+            return {
+                'fixture_id': fixture_id,
+                'total_predictions': 1,
+                'first_prediction': timeline[0]['prediction_timestamp'],
+                'latest_prediction': timeline[0]['prediction_timestamp'],
+                'changes': 0,
+                'message': 'Only one prediction made (no changes to analyze)'
+            }
+
+        first = timeline[0]
+        latest = timeline[-1]
+
+        # Calculate probability changes
+        home_change = latest['pred_home_prob'] - first['pred_home_prob']
+        draw_change = latest['pred_draw_prob'] - first['pred_draw_prob']
+        away_change = latest['pred_away_prob'] - first['pred_away_prob']
+
+        # Check if predicted outcome changed
+        outcome_changed = first['predicted_outcome'] != latest['predicted_outcome']
+
+        # Calculate volatility (average absolute change between consecutive predictions)
+        volatility_home = sum(abs(timeline[i+1]['pred_home_prob'] - timeline[i]['pred_home_prob'])
+                             for i in range(len(timeline)-1)) / (len(timeline)-1)
+        volatility_draw = sum(abs(timeline[i+1]['pred_draw_prob'] - timeline[i]['pred_draw_prob'])
+                             for i in range(len(timeline)-1)) / (len(timeline)-1)
+        volatility_away = sum(abs(timeline[i+1]['pred_away_prob'] - timeline[i]['pred_away_prob'])
+                             for i in range(len(timeline)-1)) / (len(timeline)-1)
+
+        return {
+            'fixture_id': fixture_id,
+            'total_predictions': len(timeline),
+            'first_prediction': first['prediction_timestamp'],
+            'latest_prediction': latest['prediction_timestamp'],
+            'probability_changes': {
+                'home': {
+                    'initial': first['pred_home_prob'],
+                    'latest': latest['pred_home_prob'],
+                    'change': home_change,
+                    'change_pct': home_change * 100,
+                    'volatility': volatility_home
+                },
+                'draw': {
+                    'initial': first['pred_draw_prob'],
+                    'latest': latest['pred_draw_prob'],
+                    'change': draw_change,
+                    'change_pct': draw_change * 100,
+                    'volatility': volatility_draw
+                },
+                'away': {
+                    'initial': first['pred_away_prob'],
+                    'latest': latest['pred_away_prob'],
+                    'change': away_change,
+                    'change_pct': away_change * 100,
+                    'volatility': volatility_away
+                }
+            },
+            'outcome_change': {
+                'changed': outcome_changed,
+                'initial_prediction': first['predicted_outcome'],
+                'latest_prediction': latest['predicted_outcome']
+            },
+            'betting_change': {
+                'initial_should_bet': first['should_bet'],
+                'latest_should_bet': latest['should_bet'],
+                'initial_bet_outcome': first.get('bet_outcome'),
+                'latest_bet_outcome': latest.get('bet_outcome')
+            },
+            'actual_result': latest.get('actual_result'),
+            'timeline': timeline
+        }
