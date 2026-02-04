@@ -209,11 +209,36 @@ class FeatureOrchestrator:
         
         # Create DataFrame
         df = pd.DataFrame(all_features)
-        
+
+        # Check for null values before imputation
+        null_counts_before = df.isnull().sum()
+        total_nulls_before = null_counts_before.sum()
+
+        if total_nulls_before > 0:
+            logger.info(f"\n⚠️  Found {total_nulls_before} null values across {(null_counts_before > 0).sum()} columns")
+            logger.info("   Applying null imputation strategy (filling with 0)...")
+
+            # Metadata columns that should not be imputed
+            metadata_cols = ['fixture_id', 'home_team_id', 'away_team_id', 'season_id',
+                           'league_id', 'match_date', 'home_score', 'away_score', 'result', 'target']
+
+            # Get feature columns (exclude metadata)
+            feature_cols = [col for col in df.columns if col not in metadata_cols]
+
+            # Fill nulls with 0 for feature columns
+            df[feature_cols] = df[feature_cols].fillna(0)
+
+            # Verify imputation
+            null_counts_after = df.isnull().sum()
+            total_nulls_after = null_counts_after.sum()
+            logger.info(f"   ✅ Imputation complete. Nulls remaining: {total_nulls_after}")
+        else:
+            logger.info("\n✅ No null values detected")
+
         logger.info(f"\n✅ Generated {len(df)} feature vectors")
         logger.info(f"   Total features: {len(df.columns)}")
         logger.info(f"   Feature columns: {len([c for c in df.columns if c not in ['fixture_id', 'home_team_id', 'away_team_id', 'season_id', 'league_id', 'match_date', 'home_score', 'away_score', 'result']])}")
-        
+
         # Save to CSV
         output_path = Path(output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)

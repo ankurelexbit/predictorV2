@@ -32,6 +32,13 @@ from typing import List, Dict
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not required if variables already exported
+
 from src.database import SupabaseClient
 from src.data.sportmonks_client import SportMonksClient
 
@@ -200,7 +207,8 @@ class ResultUpdater:
         # Show PnL for updated period
         if updated_count > 0:
             logger.info("\n📊 Performance for updated period:")
-            performance = self.db.get_betting_performance(days=7, model_version=model_version)
+            days = (datetime.now() - datetime.strptime(start_date, '%Y-%m-%d')).days + 1
+            performance = self.db.get_betting_performance(days=days, model_version=model_version)
 
             if performance['total_bets'] > 0:
                 logger.info(f"  Bets: {performance['total_bets']}")

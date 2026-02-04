@@ -27,6 +27,13 @@ from datetime import datetime, timedelta
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not required if variables already exported
+
 from src.database import SupabaseClient
 
 logging.basicConfig(
@@ -106,7 +113,7 @@ def main():
     date_group.add_argument('--start-date', help='Start date (YYYY-MM-DD)')
 
     parser.add_argument('--end-date', help='End date (YYYY-MM-DD)')
-    parser.add_argument('--model-version', default='v4', help='Model version (default: v4)')
+    parser.add_argument('--model-version', default='v4_conservative', help='Model version (default: v4_conservative)')
 
     args = parser.parse_args()
 

@@ -113,9 +113,7 @@ class Pillar3HiddenEdgesEngine:
             # Form trajectory
             'home_points_trend_10': home_momentum['points_trend'],
             'away_points_trend_10': away_momentum['points_trend'],
-            'home_xg_trend_10': home_momentum['xg_trend'],
-            'away_xg_trend_10': away_momentum['xg_trend'],
-            
+
             # Weighted form
             'home_weighted_form_5': home_momentum['weighted_form'],
             'away_weighted_form_5': away_momentum['weighted_form'],
@@ -181,7 +179,6 @@ class Pillar3HiddenEdgesEngine:
         
         return {
             'points_trend': float(points_trend),
-            'xg_trend': 0.0,  # Placeholder
             'weighted_form': float(weighted_form),
             'win_streak': win_streak,
             'unbeaten_streak': unbeaten_streak,

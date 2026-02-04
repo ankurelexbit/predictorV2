@@ -33,6 +33,7 @@ Usage:
 """
 
 import sys
+import os
 from pathlib import Path
 import pandas as pd
 import numpy as np
@@ -40,6 +41,7 @@ import logging
 import argparse
 from datetime import datetime
 from sklearn.metrics import log_loss, accuracy_score
+from sklearn.isotonic import IsotonicRegression
 import catboost as cb
 import optuna
 import joblib
@@ -48,6 +50,12 @@ import re
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 logging.basicConfig(
     level=logging.INFO,
@@ -128,6 +136,53 @@ def create_latest_file(model_path: Path):
 
     logger.info(f"✅ Updated LATEST pointer: {latest_file}")
     logger.info(f"   → {model_path.name}")
+
+
+def fit_calibrators(output_dir: Path, min_predictions: int = 100):
+    """
+    Fit isotonic calibrators on resolved predictions from the database.
+    Non-blocking: logs a warning and returns if DB is unavailable or data is insufficient.
+    """
+    database_url = os.environ.get('DATABASE_URL')
+    if not database_url:
+        logger.warning("DATABASE_URL not set — skipping calibrator fitting")
+        return
+
+    try:
+        from src.database import SupabaseClient
+        db = SupabaseClient(database_url)
+
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT pred_home_prob, pred_draw_prob, pred_away_prob, actual_result
+                FROM predictions
+                WHERE actual_result IS NOT NULL
+                ORDER BY match_date
+            """)
+            rows = cursor.fetchall()
+
+        if len(rows) < min_predictions:
+            logger.warning(f"Calibrators need >= {min_predictions} resolved predictions, have {len(rows)} — skipping")
+            return
+
+        home_probs  = np.array([r[0] for r in rows])
+        draw_probs  = np.array([r[1] for r in rows])
+        away_probs  = np.array([r[2] for r in rows])
+        home_actual = np.array([1 if r[3] == 'H' else 0 for r in rows])
+        draw_actual = np.array([1 if r[3] == 'D' else 0 for r in rows])
+        away_actual = np.array([1 if r[3] == 'A' else 0 for r in rows])
+
+        iso_home = IsotonicRegression(out_of_bounds='clip').fit(home_probs, home_actual)
+        iso_draw = IsotonicRegression(out_of_bounds='clip').fit(draw_probs, draw_actual)
+        iso_away = IsotonicRegression(out_of_bounds='clip').fit(away_probs, away_actual)
+
+        cal_path = output_dir / 'calibrators.joblib'
+        joblib.dump({'home': iso_home, 'draw': iso_draw, 'away': iso_away}, cal_path)
+        logger.info(f"✅ Calibrators fitted on {len(rows)} predictions → {cal_path}")
+
+    except Exception as e:
+        logger.warning(f"Calibrator fitting failed (non-critical): {e}")
 
 
 def load_and_prepare_data(data_path: Path):
@@ -225,7 +280,7 @@ def train_model(X_train, y_train, X_val, y_val):
         y_pred_proba = model.predict_proba(X_val)
         return log_loss(y_val, y_pred_proba)
 
-    study = optuna.create_study(direction='minimize')
+    study = optuna.create_study(direction='minimize', sampler=optuna.samplers.TPESampler(seed=42))
     study.optimize(objective, n_trials=PRODUCTION_CONFIG['n_trials'], show_progress_bar=True)
 
     logger.info(f"\n✅ Best validation log loss: {study.best_value:.4f}")
@@ -394,6 +449,12 @@ def main():
 
         # Save
         metadata_path = save_model(model, output_path, metrics, best_params, len(feature_cols), version)
+
+        # Re-fit probability calibrators from DB
+        logger.info("\n" + "="*80)
+        logger.info("FITTING CALIBRATORS")
+        logger.info("="*80)
+        fit_calibrators(output_dir)
 
         logger.info("\n" + "="*80)
         logger.info("✅ TRAINING COMPLETE!")

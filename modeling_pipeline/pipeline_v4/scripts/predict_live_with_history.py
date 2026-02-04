@@ -34,6 +34,13 @@ import argparse
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not required if variables already exported
+
 from src.data.sportmonks_client import SportMonksClient
 from src.features import (
     EloCalculator,

@@ -14,6 +14,13 @@ import psycopg2
 from psycopg2.extras import execute_values
 from contextlib import contextmanager
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not required if variables already exported
+
 logger = logging.getLogger(__name__)
 
 

@@ -8,8 +8,9 @@ Any changes here will affect live predictions!
 Last Updated: 2026-02-03
 Model: Versioned production models in models/production/
 Versioning: Automatic semantic versioning (v1.0.0, v1.1.0, etc.)
-Tested on: January 2026 (202 Top 5 League matches)
-Performance: $41.81 profit, 28.3% ROI, 52.0% win rate
+Tested on: Nov 2025 – Jan 2026 (581 resolved predictions, Top 5 Leagues)
+Simulated PnL at optimal thresholds: Home +$8.82, Draw +$4.58, Away +$13.14
+Recalibrated 2026-02-04: Home 0.66, Draw 0.33, Away 0.41
 """
 
 from pathlib import Path
@@ -100,16 +101,47 @@ MODEL_INFO = {
 # BETTING THRESHOLDS
 # ============================================================================
 
-# Optimal thresholds for Option 3 model
-# Based on January 2026 backtest (Top 5 Leagues)
+# Thresholds applied to CALIBRATED probabilities (isotonic regression)
+# Calibrators fitted on 581 predictions (Nov 2025 – Jan 2026), saved to models/calibrators.joblib
+# Raw model probs are stored in DB; calibrated probs are used only for threshold comparison
 THRESHOLDS = {
-    'home': 0.65,  # 70.0% win rate, 1.2% ROI
-    'draw': 0.30,  # 39.0% win rate, 37.8% ROI (primary profit source)
-    'away': 0.42   # 66.7% win rate, 29.1% ROI
+    'home': 0.56,  # cal: 72 bets, 80.6% wr, +$9.82, 13.6% ROI
+    'draw': 0.26,  # cal: 126 bets, 33.3% wr, +$15.88, 12.6% ROI
+    'away': 0.37   # cal: 133 bets, 58.6% wr, +$15.11, 11.4% ROI
 }
 
 # Historical threshold performance (for reference)
 THRESHOLD_HISTORY = {
+    '2026-02-04-v3-calibrated': {
+        'thresholds': {'home': 0.56, 'draw': 0.26, 'away': 0.37},
+        'calibration': 'Isotonic regression fitted on 581 predictions. '
+                       'Calibrators saved to models/calibrators.joblib. '
+                       'Thresholds now apply to calibrated probs, not raw CatBoost output. '
+                       'Raw probs still stored in DB for future re-calibration.',
+        'reason': 'Home had +15.6% overconfidence in 0.55–0.60 bin (dead zone). '
+                  'Draw had +5.6% overconfidence in 0.30–0.35 bin. '
+                  'Away was consistently underconfident above 0.40. '
+                  'Calibration fixes all three. Simulated total: +$40.81 vs +$26.54 uncalibrated (+$14.27 gain).',
+        'performance': {
+            'total_predictions': 581,
+            'actual_outcomes': {'H': 253, 'D': 149, 'A': 179},
+            'simulated_calibrated': {
+                'home': {'cal_threshold': 0.56, 'bets': 72, 'wins': 58, 'win_rate': 80.6, 'profit': 9.82, 'roi': 13.6},
+                'draw': {'cal_threshold': 0.26, 'bets': 126, 'wins': 42, 'win_rate': 33.3, 'profit': 15.88, 'roi': 12.6},
+                'away': {'cal_threshold': 0.37, 'bets': 133, 'wins': 78, 'win_rate': 58.6, 'profit': 15.11, 'roi': 11.4}
+            },
+            'test_period': 'Nov 2025 – Jan 2026',
+            'leagues': 'Top 5 only'
+        }
+    },
+    '2026-02-04': {
+        'thresholds': {'home': 0.58, 'draw': 0.30, 'away': 0.41},
+        'reason': 'Jan-only optimisation (223 predictions). Later superseded by v2 with full Nov-Jan data.',
+        'performance': {
+            'total_predictions': 223,
+            'note': 'Superseded — draw at 0.30 was losing on Nov-Dec data'
+        }
+    },
     '2026-02-02': {
         'thresholds': {'home': 0.65, 'draw': 0.30, 'away': 0.42},
         'performance': {

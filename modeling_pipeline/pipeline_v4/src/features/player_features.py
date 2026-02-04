@@ -104,13 +104,15 @@ class PlayerFeatureCalculator:
                 away_team_id, as_of_date
             ) * 1.1
 
-            # Assume most key players available if no data
-            features['home_key_players_available'] = 4
-            features['away_key_players_available'] = 4
-
         # Get sidelined data (injuries/suspensions)
         home_sidelined = self._get_sidelined_count(home_team_id, as_of_date)
         away_sidelined = self._get_sidelined_count(away_team_id, as_of_date)
+
+        # Calculate key players available when lineup data not available
+        # Assume 5 typical key players minus those sidelined (injuries/suspensions)
+        if not lineups:
+            features['home_key_players_available'] = max(0, 5 - home_sidelined)
+            features['away_key_players_available'] = max(0, 5 - away_sidelined)
 
         features['home_players_unavailable'] = home_sidelined
         features['away_players_unavailable'] = away_sidelined

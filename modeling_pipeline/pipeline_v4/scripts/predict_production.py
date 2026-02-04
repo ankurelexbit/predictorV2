@@ -25,10 +25,19 @@ from pathlib import Path
 import argparse
 import logging
 from datetime import datetime, timedelta
-from typing import List, Dict
+from typing import List, Dict, Tuple, Optional
 import pandas as pd
+import joblib
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not required if variables already exported
 
 from scripts.predict_live_with_history import ProductionLivePipeline, HistoricalDataFetcher
 from src.database import SupabaseClient
@@ -93,12 +102,15 @@ class ProductionPredictionEngine:
         self.db = SupabaseClient(database_url)
         self.db.create_tables()
 
-        # Thresholds from config
+        # Thresholds from config (applied to calibrated probabilities)
         self.thresholds = config.THRESHOLDS
-        logger.info(f"\n📊 Betting Thresholds:")
+        logger.info(f"\n📊 Betting Thresholds (on calibrated probs):")
         logger.info(f"   Home: {self.thresholds['home']:.2f}")
         logger.info(f"   Draw: {self.thresholds['draw']:.2f}")
         logger.info(f"   Away: {self.thresholds['away']:.2f}")
+
+        # Load probability calibrators
+        self.calibrators = self._load_calibrators()
 
         # League filtering
         self.filter_top_5 = config.FILTER_TOP_5_ONLY
@@ -108,6 +120,29 @@ class ProductionPredictionEngine:
             logger.info(f"   Leagues: {self.top_5_leagues}")
         else:
             logger.info(f"\n🌍 League Filter: ALL LEAGUES")
+
+    def _load_calibrators(self) -> Optional[Dict]:
+        """Load isotonic calibrators from models/calibrators.joblib."""
+        cal_path = Path('models/calibrators.joblib')
+        if cal_path.exists():
+            calibrators = joblib.load(cal_path)
+            logger.info(f"   ✅ Calibrators loaded from {cal_path}")
+            return calibrators
+        logger.warning("   ⚠️  No calibrators found — using raw model probabilities")
+        return None
+
+    def _calibrate_probs(self, home_prob: float, draw_prob: float, away_prob: float) -> Tuple[float, float, float]:
+        """
+        Apply isotonic calibration to raw CatBoost probabilities.
+        Returns calibrated probabilities (not renormalized — each maps independently
+        to actual win rate for that outcome).
+        """
+        if not self.calibrators:
+            return home_prob, draw_prob, away_prob
+        cal_home = float(self.calibrators['home'].predict([home_prob])[0])
+        cal_draw = float(self.calibrators['draw'].predict([draw_prob])[0])
+        cal_away = float(self.calibrators['away'].predict([away_prob])[0])
+        return cal_home, cal_draw, cal_away
 
     def _extract_odds(self, odds_data: List[Dict]) -> Dict:
         """
@@ -298,18 +333,21 @@ class ProductionPredictionEngine:
                 draw_prob = result['draw_prob']
                 away_prob = result['away_prob']
 
-                # Determine predicted outcome
-                max_prob = max(home_prob, draw_prob, away_prob)
-                if max_prob == home_prob:
+                # Calibrate probabilities for betting decisions
+                cal_home, cal_draw, cal_away = self._calibrate_probs(home_prob, draw_prob, away_prob)
+
+                # Determine predicted outcome (use calibrated probs)
+                max_prob = max(cal_home, cal_draw, cal_away)
+                if max_prob == cal_home:
                     predicted_outcome = 'H'
-                elif max_prob == away_prob:
+                elif max_prob == cal_away:
                     predicted_outcome = 'A'
                 else:
                     predicted_outcome = 'D'
 
-                # Apply betting strategy (use market odds if available)
+                # Apply betting strategy with calibrated probs against thresholds
                 bet_decision = self._apply_strategy(
-                    home_prob, draw_prob, away_prob,
+                    cal_home, cal_draw, cal_away,
                     fixture.get('best_home_odds'),
                     fixture.get('best_draw_odds'),
                     fixture.get('best_away_odds')
