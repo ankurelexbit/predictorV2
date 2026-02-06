@@ -6,7 +6,7 @@ Production Prediction Script with Full Historical Context
 Loads 1 year of historical data on startup, then generates predictions
 for upcoming matches and stores in Supabase.
 
-Uses conservative model with draw weights (1.2/1.5/1.0).
+Uses v2.0.0 unweighted CatBoost with isotonic calibration and hybrid betting strategy.
 
 Usage:
     export SPORTMONKS_API_KEY="your_key"
@@ -102,12 +102,17 @@ class ProductionPredictionEngine:
         self.db = SupabaseClient(database_url)
         self.db.create_tables()
 
-        # Thresholds from config (applied to calibrated probabilities)
+        # Strategy config
         self.thresholds = config.THRESHOLDS
-        logger.info(f"\n📊 Betting Thresholds (on calibrated probs):")
-        logger.info(f"   Home: {self.thresholds['home']:.2f}")
-        logger.info(f"   Draw: {self.thresholds['draw']:.2f}")
-        logger.info(f"   Away: {self.thresholds['away']:.2f}")
+        self.strategy = getattr(config, 'STRATEGY', 'pure_threshold')
+        self.draw_odds_gate = getattr(config, 'DRAW_ODDS_GATE', 4.0)
+        self.min_ev = getattr(config, 'MIN_EV', 0.0)
+
+        logger.info(f"\n📊 Betting Strategy: {self.strategy.upper()}")
+        logger.info(f"   Prob Gates — Home: {self.thresholds['home']:.2f}  Draw: {self.thresholds['draw']:.2f}  Away: {self.thresholds['away']:.2f}")
+        if self.strategy == 'hybrid':
+            logger.info(f"   Draw Odds Gate: {self.draw_odds_gate}")
+            logger.info(f"   Min EV: {self.min_ev}")
 
         # Load probability calibrators
         self.calibrators = self._load_calibrators()
@@ -122,12 +127,31 @@ class ProductionPredictionEngine:
             logger.info(f"\n🌍 League Filter: ALL LEAGUES")
 
     def _load_calibrators(self) -> Optional[Dict]:
-        """Load isotonic calibrators from models/calibrators.joblib."""
-        cal_path = Path('models/calibrators.joblib')
-        if cal_path.exists():
+        """Load isotonic calibrators via LATEST_CALIBRATORS pointer (versioned)."""
+        production_dir = Path('models/production')
+        latest_file = production_dir / 'LATEST_CALIBRATORS'
+
+        cal_path = None
+        if latest_file.exists():
+            cal_filename = latest_file.read_text().strip()
+            candidate = production_dir / cal_filename
+            if candidate.exists():
+                cal_path = candidate
+            else:
+                logger.warning(f"   ⚠️  LATEST_CALIBRATORS points to {cal_filename} but file missing")
+
+        # Fallback: legacy unversioned path
+        if cal_path is None:
+            legacy = Path('models/calibrators.joblib')
+            if legacy.exists():
+                cal_path = legacy
+                logger.warning(f"   ⚠️  Using legacy calibrators path (no LATEST_CALIBRATORS)")
+
+        if cal_path and cal_path.exists():
             calibrators = joblib.load(cal_path)
             logger.info(f"   ✅ Calibrators loaded from {cal_path}")
             return calibrators
+
         logger.warning("   ⚠️  No calibrators found — using raw model probabilities")
         return None
 
@@ -406,35 +430,65 @@ class ProductionPredictionEngine:
         market_away_odds: float = None
     ) -> Dict:
         """
-        Apply threshold betting strategy.
+        Betting strategy dispatcher — runs hybrid or pure_threshold based on config.STRATEGY.
 
-        Uses market odds if available, otherwise calculates implied odds from probabilities.
+        Hybrid:
+            1. Prob gate: cal_prob >= threshold
+            2. EV filter: (cal_prob × odds) - 1 > min_ev
+            3. Draw odds gate: draw only qualifies if odds >= DRAW_ODDS_GATE
+            4. Pick highest EV among candidates
+
+        Pure threshold:
+            1. Prob gate: cal_prob > threshold
+            2. Pick highest cal_prob among candidates
         """
-        # Use market odds if available, otherwise calculate from probabilities
-        home_odds = market_home_odds if market_home_odds else (1 / home_prob * 0.95 if home_prob > 0.01 else 100)
-        draw_odds = market_draw_odds if market_draw_odds else (1 / draw_prob * 0.95 if draw_prob > 0.01 else 100)
-        away_odds = market_away_odds if market_away_odds else (1 / away_prob * 0.95 if away_prob > 0.01 else 100)
+        # Use market odds if available; fallback divides by 0.95 to simulate
+        # a typical bookmaker vig (~5%) on top of fair-value implied odds.
+        home_odds = market_home_odds if market_home_odds else (1 / home_prob / 0.95 if home_prob > 0.01 else 100)
+        draw_odds = market_draw_odds if market_draw_odds else (1 / draw_prob / 0.95 if draw_prob > 0.01 else 100)
+        away_odds = market_away_odds if market_away_odds else (1 / away_prob / 0.95 if away_prob > 0.01 else 100)
 
-        candidates = []
+        no_bet = {'bet_outcome': None, 'bet_probability': None, 'bet_odds': None, 'should_bet': False}
 
-        if home_prob > self.thresholds['home']:
-            candidates.append(('Home Win', home_prob, home_odds))
+        if self.strategy == 'hybrid':
+            candidates = []  # (outcome, ev, odds, cal_prob)
 
-        if draw_prob > self.thresholds['draw']:
-            candidates.append(('Draw', draw_prob, draw_odds))
+            if home_prob >= self.thresholds['home'] and home_odds:
+                ev = (home_prob * home_odds) - 1
+                if ev > self.min_ev:
+                    candidates.append(('Home Win', ev, home_odds, home_prob))
 
-        if away_prob > self.thresholds['away']:
-            candidates.append(('Away Win', away_prob, away_odds))
+            if draw_prob >= self.thresholds['draw'] and draw_odds and draw_odds >= self.draw_odds_gate:
+                ev = (draw_prob * draw_odds) - 1
+                if ev > self.min_ev:
+                    candidates.append(('Draw', ev, draw_odds, draw_prob))
 
-        if not candidates:
-            return {
-                'bet_outcome': None,
-                'bet_probability': None,
-                'bet_odds': None,
-                'should_bet': False
-            }
+            if away_prob >= self.thresholds['away'] and away_odds:
+                ev = (away_prob * away_odds) - 1
+                if ev > self.min_ev:
+                    candidates.append(('Away Win', ev, away_odds, away_prob))
 
-        bet_outcome, bet_prob, bet_odds = max(candidates, key=lambda x: x[1])
+            if not candidates:
+                return no_bet
+
+            # Pick highest EV
+            bet_outcome, bet_ev, bet_odds, bet_prob = max(candidates, key=lambda x: x[1])
+
+        else:
+            # Pure threshold fallback
+            candidates = []  # (outcome, prob, odds)
+
+            if home_prob > self.thresholds['home']:
+                candidates.append(('Home Win', home_prob, home_odds))
+            if draw_prob > self.thresholds['draw']:
+                candidates.append(('Draw', draw_prob, draw_odds))
+            if away_prob > self.thresholds['away']:
+                candidates.append(('Away Win', away_prob, away_odds))
+
+            if not candidates:
+                return no_bet
+
+            bet_outcome, bet_prob, bet_odds = max(candidates, key=lambda x: x[1])
 
         return {
             'bet_outcome': bet_outcome,

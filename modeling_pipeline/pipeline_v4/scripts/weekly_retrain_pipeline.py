@@ -6,7 +6,8 @@ This script should be run weekly (via cron or scheduler) to:
 2. Convert JSON to CSV
 3. Generate training data
 4. Train model
-5. Evaluate and save
+5. Recalibrate model (CRITICAL - model and calibrators must be updated together)
+6. Cleanup old files
 
 Usage:
     python3 scripts/weekly_retrain_pipeline.py --weeks-back 4
@@ -166,7 +167,40 @@ class WeeklyRetrainPipeline:
 
         return success
 
-    def step5_cleanup_old_files(self, keep_last_n: int = 5):
+    def step5_recalibrate(self) -> bool:
+        """
+        Smart recalibration - Only update if performance improves.
+
+        IMPORTANT: Blind recalibration can DEGRADE performance if new calibrators overfit.
+        This step validates new calibrators on a holdout set before deploying them.
+
+        Process:
+        1. Fit new calibrators on training period (last 6 months)
+        2. Test OLD vs NEW on validation period (last 2 months)
+        3. Only update if new calibrators beat old ones on PnL
+        4. Otherwise, keep existing calibrators
+
+        This prevents performance degradation from overfitted calibrators.
+        """
+        logger.info("\n" + "=" * 80)
+        logger.info("STEP 5: SMART RECALIBRATION (with validation)")
+        logger.info("=" * 80)
+
+        cmd = "python3 scripts/smart_recalibrate.py --train-months 6 --val-months 2"
+
+        success = self.run_command(cmd, "Smart recalibration with validation")
+
+        if success:
+            logger.info("✅ Calibration complete (updated or kept existing based on validation)")
+            logger.info("   Model + calibrators are optimized for best performance")
+        else:
+            logger.warning("⚠️  Smart recalibration failed")
+            logger.warning("   Existing calibrators unchanged - safe to continue")
+
+        # Non-critical step - don't fail pipeline if calibration fails
+        return True
+
+    def step6_cleanup_old_files(self, keep_last_n: int = 5):
         """Clean up old training data files (models are kept with versioning)."""
         logger.info("\n" + "=" * 80)
         logger.info("STEP 5: CLEANUP OLD FILES")
@@ -204,6 +238,7 @@ class WeeklyRetrainPipeline:
             ("Convert to CSV", self.step2_convert_to_csv),
             ("Generate training data", self.step3_generate_training_data),
             ("Train model", self.step4_train_model),
+            ("Recalibrate model", self.step5_recalibrate),
         ]
 
         for step_name, step_func in steps:
@@ -218,7 +253,7 @@ class WeeklyRetrainPipeline:
 
         # Cleanup (optional, doesn't stop pipeline if it fails)
         try:
-            self.step5_cleanup_old_files()
+            self.step6_cleanup_old_files()
         except Exception as e:
             logger.warning(f"Cleanup failed (non-critical): {e}")
 

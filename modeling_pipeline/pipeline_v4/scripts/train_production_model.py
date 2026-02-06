@@ -3,12 +3,12 @@
 Production Model Training Script
 =================================
 
-Trains CatBoost model with Option 3 (Balanced) weights and 162 features.
-Configuration matches deployed production model for consistency.
+Trains CatBoost model with equal class weights and 162 features.
+Isotonic calibrators (fit from resolved predictions) correct residual bias.
 
 **CURRENT PRODUCTION CONFIG:**
-- Model: Option 3 (Balanced)
-- Class Weights: Away=1.1, Draw=1.4, Home=1.2
+- Model: Unweighted (class weights removed 2026-02-04)
+- Class Weights: all 1.0
 - Versioning: Semantic versioning (v1.0.0, v1.1.0, etc.)
 
 **AUTOMATIC VERSIONING:**
@@ -71,22 +71,24 @@ except ImportError:
     USE_PRODUCTION_CONFIG = False
     logger.warning("Could not import production_config, using defaults")
 
-# Production configuration - OPTION 3 (BALANCED)
-# These weights match the deployed production model
+# Production configuration - UNWEIGHTED
+# Class weights removed 2026-02-04: empirical comparison showed weights distorted
+# all three probability channels (+4.0% draw bias, -3.4% away bias).
+# Isotonic calibrators now correct from unbiased raw probs instead.
 PRODUCTION_CONFIG = {
-    'model_name': 'Option 3: Balanced',
-    'version': 'v4.1',
+    'model_name': 'Unweighted',
+    'version': 'v4.2',
     'class_weights': {
-        0: 1.1,  # Away
-        1: 1.4,  # Draw
-        2: 1.2   # Home
+        0: 1.0,  # Away
+        1: 1.0,  # Draw
+        2: 1.0   # Home
     },
     'n_trials': 100,
     'train_ratio': 0.70,
     'val_ratio': 0.15,
     'test_ratio': 0.15,
     'random_seed': 42,
-    'description': 'Balanced weights for optimal draw performance'
+    'description': 'Equal weights — calibration layer corrects residual bias'
 }
 
 FEATURES_TO_EXCLUDE = [
@@ -140,49 +142,49 @@ def create_latest_file(model_path: Path):
 
 def fit_calibrators(output_dir: Path, min_predictions: int = 100):
     """
-    Fit isotonic calibrators on resolved predictions from the database.
-    Non-blocking: logs a warning and returns if DB is unavailable or data is insufficient.
+    Smart recalibration - Only updates if performance improves.
+
+    Calls smart_recalibrate.py which:
+    1. Fits new calibrators on training period (last 6 months)
+    2. Tests OLD vs NEW on validation period (last 2 months)
+    3. Only updates if new calibrators beat old ones
+    4. Prevents performance degradation from overfitting
+
+    Non-blocking: logs a warning if fails, but doesn't crash training.
     """
-    database_url = os.environ.get('DATABASE_URL')
-    if not database_url:
-        logger.warning("DATABASE_URL not set — skipping calibrator fitting")
-        return
+    logger.info("Running smart recalibration with validation...")
 
     try:
-        from src.database import SupabaseClient
-        db = SupabaseClient(database_url)
+        import subprocess
 
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT pred_home_prob, pred_draw_prob, pred_away_prob, actual_result
-                FROM predictions
-                WHERE actual_result IS NOT NULL
-                ORDER BY match_date
-            """)
-            rows = cursor.fetchall()
+        # Call smart_recalibrate.py
+        result = subprocess.run(
+            ['python3', 'scripts/smart_recalibrate.py',
+             '--train-months', '6',
+             '--val-months', '2'],
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minute timeout
+        )
 
-        if len(rows) < min_predictions:
-            logger.warning(f"Calibrators need >= {min_predictions} resolved predictions, have {len(rows)} — skipping")
-            return
+        if result.returncode == 0:
+            logger.info("✅ Smart recalibration complete")
+            # Print summary from script output
+            if "NEW calibrators are BETTER" in result.stdout:
+                logger.info("   → Calibrators UPDATED (performance improved)")
+            elif "KEEPING existing calibrators" in result.stdout:
+                logger.info("   → Calibrators KEPT (existing ones perform better)")
+            elif "No existing calibrators" in result.stdout:
+                logger.info("   → New calibrators SAVED (first time)")
+        else:
+            logger.warning(f"⚠️  Smart recalibration failed (non-critical)")
+            logger.warning(f"   Error: {result.stderr[:200]}")
+            logger.warning("   Existing calibrators unchanged")
 
-        home_probs  = np.array([r[0] for r in rows])
-        draw_probs  = np.array([r[1] for r in rows])
-        away_probs  = np.array([r[2] for r in rows])
-        home_actual = np.array([1 if r[3] == 'H' else 0 for r in rows])
-        draw_actual = np.array([1 if r[3] == 'D' else 0 for r in rows])
-        away_actual = np.array([1 if r[3] == 'A' else 0 for r in rows])
-
-        iso_home = IsotonicRegression(out_of_bounds='clip').fit(home_probs, home_actual)
-        iso_draw = IsotonicRegression(out_of_bounds='clip').fit(draw_probs, draw_actual)
-        iso_away = IsotonicRegression(out_of_bounds='clip').fit(away_probs, away_actual)
-
-        cal_path = output_dir / 'calibrators.joblib'
-        joblib.dump({'home': iso_home, 'draw': iso_draw, 'away': iso_away}, cal_path)
-        logger.info(f"✅ Calibrators fitted on {len(rows)} predictions → {cal_path}")
-
+    except subprocess.TimeoutExpired:
+        logger.warning("⚠️  Smart recalibration timed out (non-critical)")
     except Exception as e:
-        logger.warning(f"Calibrator fitting failed (non-critical): {e}")
+        logger.warning(f"⚠️  Smart recalibration error (non-critical): {e}")
 
 
 def load_and_prepare_data(data_path: Path):
@@ -389,12 +391,12 @@ def main():
                        help='Directory to save models (default: models/production)')
     parser.add_argument('--n-trials', type=int, default=100,
                        help='Number of Optuna trials (default: 100)')
-    parser.add_argument('--weight-home', type=float, default=1.2,
-                       help='Class weight for home wins (default: 1.2 - Option 3)')
-    parser.add_argument('--weight-draw', type=float, default=1.4,
-                       help='Class weight for draws (default: 1.4 - Option 3)')
-    parser.add_argument('--weight-away', type=float, default=1.1,
-                       help='Class weight for away wins (default: 1.1 - Option 3)')
+    parser.add_argument('--weight-home', type=float, default=1.0,
+                       help='Class weight for home wins (default: 1.0)')
+    parser.add_argument('--weight-draw', type=float, default=1.0,
+                       help='Class weight for draws (default: 1.0)')
+    parser.add_argument('--weight-away', type=float, default=1.0,
+                       help='Class weight for away wins (default: 1.0)')
 
     args = parser.parse_args()
 

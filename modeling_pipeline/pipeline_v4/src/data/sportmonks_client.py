@@ -319,17 +319,126 @@ class SportMonksClient:
     def get_head_to_head(self, team1_id: int, team2_id: int) -> List[Dict]:
         """
         Get head-to-head fixtures between two teams.
-        
+
         Args:
             team1_id: First team ID
             team2_id: Second team ID
-        
+
         Returns:
             List of H2H fixtures
         """
         response = self._make_request(f'/fixtures/head-to-head/{team1_id}/{team2_id}')
         return response.get('data', [])
-    
+
+    def get_standings(self, season_id: int, includes: Optional[List[str]] = None) -> Dict:
+        """
+        Get current league standings for a season.
+
+        This fetches official current standings from SportMonks API, avoiding
+        the need to recalculate standings from fixtures for live predictions.
+
+        Args:
+            season_id: Season ID
+            includes: Optional includes (e.g., ['team', 'details'])
+
+        Returns:
+            Dict with standings data including:
+            - data: List of standing groups (one per league/stage)
+                - Each group has 'details' with team standings:
+                    - team_id: Team ID
+                    - position: League position
+                    - points: Total points
+                    - played: Games played
+                    - won: Games won
+                    - draw: Games drawn
+                    - lost: Games lost
+                    - goals_for: Goals scored
+                    - goals_against: Goals conceded
+
+        Example:
+            >>> standings = client.get_standings(season_id=23810)
+            >>> for group in standings['data']:
+            ...     for detail in group['details']:
+            ...         print(f"Position {detail['position']}: Team {detail['team_id']} - {detail['points']} pts")
+        """
+        params = {}
+        if includes:
+            params['include'] = ';'.join(includes)
+
+        response = self._make_request(f'/standings/seasons/{season_id}', params)
+        return response
+
+    def get_standings_as_dataframe(self, season_id: int, include_details: bool = True) -> 'pd.DataFrame':
+        """
+        Get standings as a pandas DataFrame (convenience method).
+
+        Args:
+            season_id: Season ID
+            include_details: If True, fetch additional details (form, stats, etc.)
+
+        Returns:
+            DataFrame with columns: team_id, position, points, played, won, draw, lost,
+                                   goals_for, goals_against, goal_difference
+
+        Note: Requires pandas to be imported
+        """
+        import pandas as pd
+
+        # Fetch standings with details if requested
+        includes = ['details'] if include_details else None
+        standings_data = self.get_standings(season_id, includes=includes)
+
+        # Parse standings data
+        rows = []
+        for standing in standings_data.get('data', []):
+            # Check if this is a flat structure (just standing data) or nested
+            if 'participant_id' in standing:
+                # Flat structure - standings are direct
+                detail = standing.get('details', [{}])[0] if 'details' in standing else {}
+
+                rows.append({
+                    'team_id': standing.get('participant_id'),
+                    'position': standing.get('position'),
+                    'points': standing.get('points', 0),
+                    'played': detail.get('games_played', detail.get('played', 0)),
+                    'won': detail.get('won', 0),
+                    'draw': detail.get('draw', 0),
+                    'lost': detail.get('lost', 0),
+                    'goals_for': detail.get('goals_for', 0),
+                    'goals_against': detail.get('goals_against', 0),
+                    'goal_difference': detail.get('goal_difference', 0)
+                })
+            elif 'details' in standing:
+                # Nested structure - standings in details array
+                for detail in standing.get('details', []):
+                    rows.append({
+                        'team_id': detail.get('team_id', detail.get('participant_id')),
+                        'position': detail.get('position'),
+                        'points': detail.get('points', 0),
+                        'played': detail.get('games_played', detail.get('played', 0)),
+                        'won': detail.get('won', 0),
+                        'draw': detail.get('draw', 0),
+                        'lost': detail.get('lost', 0),
+                        'goals_for': detail.get('goals_for', 0),
+                        'goals_against': detail.get('goals_against', 0),
+                        'goal_difference': detail.get('goal_difference', 0)
+                    })
+
+        df = pd.DataFrame(rows)
+
+        # Calculate points_per_game if we have played
+        if not df.empty and 'played' in df.columns and 'points' in df.columns:
+            df['points_per_game'] = df.apply(
+                lambda row: row['points'] / row['played'] if row['played'] > 0 else 0.0,
+                axis=1
+            )
+
+        # Sort by position
+        if not df.empty and 'position' in df.columns:
+            df = df.sort_values('position').reset_index(drop=True)
+
+        return df
+
     def close(self):
         """Close the session."""
         self.session.close()

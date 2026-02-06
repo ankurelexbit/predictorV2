@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+venv/
+data/historical/
+data/cache/
+models/production/*.joblib
+catboost_info/

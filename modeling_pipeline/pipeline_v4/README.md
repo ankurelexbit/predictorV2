@@ -6,21 +6,21 @@ Complete **3-pillar feature generation pipeline** with **150 features** built fr
 
 ---
 
-## ⚡ Production Model (v1.0.0)
+## ⚡ Production Model (v2.0.0)
 
-**Currently Deployed:** Option 3: Balanced (Versioned)
+**Currently Deployed:** Unweighted CatBoost — pure threshold strategy
 
-**Performance (January 2026 backtest on Top 5 leagues):**
-- ✅ **28.3% ROI** - Profit: $41.81 on 148 bets
-- ✅ **52.0% Overall Win Rate** - 77 wins / 148 bets
-- ✅ **39.0% Draw Win Rate** - 32 wins / 82 draw bets (37.8% ROI)
-- ✅ **Top 5 Leagues Only** - 3x better than all leagues
+**Performance (Nov 2025 – Jan 2026 backtest, 581 predictions, Top 5 leagues):**
+- ✅ **+$32.53 simulated PnL** — all 3 outcomes positive (H +$20.04, D +$2.71, A +$9.78)
+- ✅ **51.9% Overall Win Rate** (576 bets, 299 wins)
+- ✅ **Top 5 Leagues Only** — 3x better than all leagues
 
 **Configuration:**
-- Model: `models/production/model_v1.0.0.joblib` (auto-detected via LATEST)
-- Versioning: Automatic semantic versioning (v1.0.0 → v1.0.1 → v1.0.2, etc.)
-- Class Weights: Away=1.1, Draw=1.4, Home=1.2
-- Thresholds: Home=0.65, Draw=0.30, Away=0.42
+- Model: `models/production/model_v2.0.0.joblib` (auto-detected via LATEST)
+- Versioning: Automatic semantic versioning (v1.0.0 → v2.0.0, etc.)
+- Class Weights: None (all 1.0) — weights caused systematic bias, removed after empirical comparison
+- Thresholds: Home=0.36, Draw=0.28, Away=0.40 (applied to isotonic-calibrated probs)
+- Strategy: Pure threshold — pick highest cal_prob among outcomes that exceed their gate
 - Leagues: Premier League, Bundesliga, Serie A, Ligue 1, La Liga
 - Full Config: `config/production_config.py`
 
@@ -1074,6 +1074,13 @@ Start with **Option C** (emphasize overall metrics) for initial marketing, then 
 ---
 
 ### EV-Based Betting Strategy (Advanced)
+
+> **TODO (2026-02-04):** Current production uses a pure threshold strategy (no EV gate)
+> for simplicity and maximum win-rate.  Re-evaluate EV-based gating once we have
+> another 60+ days of live results under the threshold-only strategy.  The hybrid
+> approach (+$85 simulated, 403 bets) showed strong PnL but the odds-dependent
+> selection adds complexity.  See backtest sweep in `config/production_config.py`
+> `THRESHOLD_HISTORY` for reference numbers.
 
 **What is Expected Value (EV)?**
 

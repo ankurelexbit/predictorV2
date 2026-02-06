@@ -1,0 +1,46 @@
+{
+  "version": "1.0.1",
+  "timestamp": "2026-02-06T16:34:41.621803",
+  "model_type": "CatBoost+LightGBM Ensemble",
+  "features": 162,
+  "class_weights": "balanced",
+  "test_metrics": {
+    "accuracy": 0.4970282317979198,
+    "log_loss": 1.0081409551445453,
+    "predictions": {
+      "home": 1017,
+      "away": 1015,
+      "draw": 660
+    },
+    "home_win_rate": 0.6214355948869223,
+    "away_win_rate": 0.5133004926108374,
+    "draw_win_rate": 0.2803030303030303,
+    "threshold_results": {
+      "thresholds": {
+        "home": 0.45,
+        "away": 0.45,
+        "draw": 0.35
+      },
+      "total_bets": 2202,
+      "bets_per_week": 25.5,
+      "overall_win_rate": 48.0,
+      "per_outcome": {
+        "home": {
+          "bets": 642,
+          "correct": 443,
+          "win_rate": 69.00311526479751
+        },
+        "away": {
+          "bets": 629,
+          "correct": 363,
+          "win_rate": 57.710651828298886
+        },
+        "draw": {
+          "bets": 931,
+          "correct": 251,
+          "win_rate": 26.96025778732546
+        }
+      }
+    }
+  }
+}

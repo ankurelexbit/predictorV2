@@ -412,6 +412,10 @@ class ProductionLivePipeline:
         self.api_key = api_key
         self.base_url = "https://api.sportmonks.com/v3/football"
 
+        # Initialize SportMonks client for API calls
+        from src.data.sportmonks_client import SportMonksClient
+        self.client = SportMonksClient(api_key=api_key)
+
         logger.info("=" * 80)
         logger.info("INITIALIZING PRODUCTION PIPELINE")
         logger.info("=" * 80)
@@ -446,8 +450,11 @@ class ProductionLivePipeline:
         else:
             logger.warning("   ⚠️  No historical data - Elo will use defaults")
 
-        # Initialize standings calculator
-        self.standings_calculator = StandingsCalculator()
+        # Initialize standings calculator with API client
+        self.standings_calculator = StandingsCalculator(sportmonks_client=self.client)
+
+        # Fetch current standings from API for common leagues (faster than recalculating)
+        self._fetch_api_standings()
 
         # Initialize feature engines
         logger.info("\n🏗️  Initializing feature engines...")
@@ -469,6 +476,65 @@ class ProductionLivePipeline:
         logger.info("=" * 80)
         logger.info("✅ PIPELINE INITIALIZED")
         logger.info("=" * 80)
+
+    def _fetch_api_standings(self):
+        """
+        Fetch current standings from SportMonks API for active seasons.
+
+        This is MUCH faster than recalculating standings from fixtures.
+        For live predictions, we don't need historical point-in-time accuracy,
+        we just need current standings.
+        """
+        logger.info("\n📊 Fetching current standings from API...")
+
+        try:
+            # Get active seasons for top leagues
+            # These are common leagues - you can expand this list
+            from config.production_config import TOP_5_LEAGUES
+
+            active_seasons = set()
+
+            # Get current season IDs from historical data
+            if hasattr(self.data_loader, 'fixtures_df') and not self.data_loader.fixtures_df.empty:
+                # Get most recent season IDs for top leagues
+                df = self.data_loader.fixtures_df
+                recent_df = df[df['league_id'].isin(TOP_5_LEAGUES)]
+
+                if not recent_df.empty:
+                    # Group by league and get most recent season
+                    for league_id in TOP_5_LEAGUES:
+                        league_df = recent_df[recent_df['league_id'] == league_id]
+                        if not league_df.empty:
+                            most_recent_season = league_df['season_id'].max()
+                            active_seasons.add((league_id, most_recent_season))
+
+            if not active_seasons:
+                logger.warning("   ⚠️  No active seasons found, skipping API standings")
+                return
+
+            # Fetch standings for each season
+            standings_fetched = 0
+            for league_id, season_id in active_seasons:
+                try:
+                    standings_df = self.client.get_standings_as_dataframe(season_id)
+
+                    if not standings_df.empty:
+                        self.standings_calculator.set_api_standings(season_id, league_id, standings_df)
+                        standings_fetched += 1
+                        logger.debug(f"   ✓ Fetched standings for season {season_id}, league {league_id} ({len(standings_df)} teams)")
+
+                except Exception as e:
+                    logger.warning(f"   ⚠️  Failed to fetch standings for season {season_id}: {e}")
+                    continue
+
+            if standings_fetched > 0:
+                logger.info(f"   ✅ Cached API standings for {standings_fetched} seasons (faster predictions!)")
+            else:
+                logger.warning("   ⚠️  No API standings cached (will calculate from fixtures)")
+
+        except Exception as e:
+            logger.warning(f"   ⚠️  Failed to fetch API standings: {e}")
+            logger.warning("   Will fall back to calculating standings from fixtures")
 
     def load_model(self, model_path: str = PRODUCTION_MODEL_PATH):
         """Load trained model."""
