@@ -1,0 +1,22 @@
+date,league,home_team,away_team,venue,model_used,home_win_prob,draw_prob,away_win_prob,predicted_outcome,data_source
+2026-01-20 15:00:00,1. HNL,Istra 1961,Rijeka,Stadion Aldo Drosina,stacking,0.5450885892196733,0.2533477619179663,0.20156364886236028,Home Win,live_api
+2026-01-20 15:30:00,Champions League,Kairat,Club Brugge,Astana Arena,stacking,0.2466373620275789,0.30949065983500545,0.44387197813741563,Away Win,live_api
+2026-01-20 17:45:00,Champions League,Bodø / Glimt,Manchester City,Aspmyra Stadion,stacking,0.5901051780854886,0.15000002138819202,0.25989480052631936,Home Win,live_api
+2026-01-20 19:45:00,Premiership,Livingston,St. Mirren,Tony Macaroni Arena,stacking,0.31241207781329206,0.30151807842247086,0.38606984376423714,Away Win,live_api
+2026-01-20 19:45:00,Championship,Coventry City,Millwall,The Coventry Building Society Arena,stacking,0.44838409626488607,0.2913669732067022,0.26024893052841186,Home Win,live_api
+2026-01-20 19:45:00,Championship,Ipswich Town,Bristol City,Portman Road Stadium,stacking,0.49223622527262184,0.27384756270637933,0.23391621202099888,Home Win,live_api
+2026-01-20 19:45:00,Championship,Oxford United,Queens Park Rangers,The Kassam Stadium,stacking,0.4085490361818249,0.26204372877292925,0.3294072350452459,Home Win,live_api
+2026-01-20 19:45:00,Championship,Preston North End,Hull City,Deepdale,stacking,0.546307216885357,0.26083868077326383,0.1928541023413792,Home Win,live_api
+2026-01-20 19:45:00,Championship,Sheffield Wednesday,Birmingham City,Hillsborough Stadium,stacking,0.43241071061098874,0.26500297643827625,0.302586312950735,Home Win,live_api
+2026-01-20 19:45:00,Championship,Swansea City,Blackburn Rovers,Swansea.com Stadium,stacking,0.48357797465430524,0.27762858346135433,0.2387934418843404,Home Win,live_api
+2026-01-20 19:45:00,Championship,West Bromwich Albion,Norwich City,The Hawthorns,stacking,0.473848012916013,0.28755322782746046,0.23859875925652657,Home Win,live_api
+2026-01-20 19:45:00,Championship,Charlton Athletic,Derby County,The Valley,stacking,0.5012211763441009,0.27159951953417766,0.2271793041217214,Home Win,live_api
+2026-01-20 19:45:00,FA Cup,Salford City,Swindon Town,The Peninsula Stadium,stacking,0.464113051984498,0.2803359501057597,0.2555509979097423,Home Win,live_api
+2026-01-20 20:00:00,Championship,Wrexham,Leicester City,Racecourse Ground,stacking,0.4967510075180531,0.2635959303485315,0.2396530621334152,Home Win,live_api
+2026-01-20 20:00:00,Champions League,FC København,Napoli,Parken,stacking,0.2722544854101714,0.27164999799014544,0.4560955165996832,Away Win,live_api
+2026-01-20 20:00:00,Champions League,Inter,Arsenal,Stadio Giuseppe Meazza,stacking,0.36951884279014424,0.2677743664528521,0.3627067907570037,Home Win,live_api
+2026-01-20 20:00:00,Champions League,Olympiacos F.C.,Bayer 04 Leverkusen,Stadio Georgios Karaiskáki,stacking,0.5947362304819747,0.22355146442012405,0.18171230509790137,Home Win,live_api
+2026-01-20 20:00:00,Champions League,Real Madrid,Monaco,Estadio Santiago Bernabéu,stacking,0.6780103447890844,0.16011074122348615,0.16187891398742943,Home Win,live_api
+2026-01-20 20:00:00,Champions League,Sporting CP,Paris Saint Germain,Estádio José Alvalade,stacking,0.6026780890557705,0.21349308796215313,0.18382882298207648,Home Win,live_api
+2026-01-20 20:00:00,Champions League,Tottenham Hotspur,Borussia Dortmund,Tottenham Hotspur Stadium,stacking,0.4731759984368543,0.24305595431316482,0.28376804724998084,Home Win,live_api
+2026-01-20 20:00:00,Champions League,Villarreal,Ajax,Estadio de la Cerámica,stacking,0.40582772248072807,0.27411266892385616,0.32005960859541577,Home Win,live_api

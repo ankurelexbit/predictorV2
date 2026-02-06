@@ -1,0 +1,5 @@
+fixture_id,date,league_name,home_team,away_team,home_team_id,away_team_id,home_prob,draw_prob,away_prob,predicted_outcome,predicted_outcome_encoded,model_used,data_source,prediction_time,status
+19425083,2026-01-19 17:30:00,Serie A,Cremonese,Hellas Verona,10722,1123,0.4579131463578455,0.2986150344115789,0.24347181923057562,Home Win,2,stacking,live_api,2026-01-19T17:11:13.752933,pending
+19425084,2026-01-19 19:45:00,Serie A,Lazio,Como,43,268,0.47579913549731867,0.24577685080973896,0.27842401369294234,Home Win,2,stacking,live_api,2026-01-19T17:11:13.753316,pending
+19427667,2026-01-19 20:00:00,Premier League,Brighton & Hove Albion,AFC Bournemouth,78,52,0.3551003574757674,0.25690601142264563,0.38799363110158697,Away Win,0,stacking,live_api,2026-01-19T17:11:13.753466,pending
+19439442,2026-01-19 20:00:00,La Liga,Elche,Sevilla,1099,676,0.48473039540990986,0.27976833239488297,0.23550127219520714,Home Win,2,stacking,live_api,2026-01-19T17:11:13.753582,pending
