@@ -94,6 +94,17 @@ STRATEGY_PROFILES = {
 ACTIVE_STRATEGY = 'conservative'
 
 # ============================================================================
+# BET SELECTOR (ML-based, bypasses thresholds)
+# ============================================================================
+
+BET_SELECTOR = {
+    'enabled': False,  # Enable with --use-selector flag in predict_live.py
+    'model_path': 'models/production/bet_selector.joblib',
+    'model_type': 'gbm',  # GBM selector: 7.7% ROI, 0 losing folds (vs threshold 4.1%)
+    'min_confidence': 0.55,  # GBM confidence threshold (validated on 6 walk-forward folds)
+}
+
+# ============================================================================
 # LEAGUE FILTERING
 # ============================================================================
 

@@ -43,7 +43,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config.production_config import (
     DATABASE_URL, THRESHOLDS, ODDS_FILTER, TOP_5_LEAGUES,
     FILTER_TOP_5_ONLY, STRATEGY_PROFILES, get_active_strategy,
-    EloConfig, get_latest_model_path
+    EloConfig, get_latest_model_path, BET_SELECTOR
 )
 from src.database import DatabaseClient
 from src.features import (
@@ -324,11 +324,12 @@ def extract_odds(fixture: dict) -> dict:
 class LivePipeline:
     """Live prediction pipeline."""
 
-    def __init__(self, api_key: str, history_days: int = 365, strategy: str = None, reference_date: datetime = None):
+    def __init__(self, api_key: str, history_days: int = 365, strategy: str = None, reference_date: datetime = None, use_selector: bool = False):
         self.api_key = api_key
         self.client = SportMonksClient(api_key)
         self.reference_date = reference_date or datetime.now()
         self.is_backtest = reference_date is not None
+        self.use_selector = use_selector
 
         # Load strategy config
         self.strategy_config = STRATEGY_PROFILES.get(strategy) if strategy else get_active_strategy()
@@ -340,6 +341,8 @@ class LivePipeline:
         logger.info("=" * 60)
         logger.info(f"Strategy: {strategy or 'default'}")
         logger.info(f"Thresholds: H={self.thresholds['home']}, A={self.thresholds['away']}, D={self.thresholds['draw']}")
+        if self.use_selector:
+            logger.info("Bet Selector: ENABLED (bypasses thresholds)")
         if self.is_backtest:
             logger.info(f"Reference date: {reference_date.strftime('%Y-%m-%d')} (backdated mode)")
 
@@ -372,6 +375,22 @@ class LivePipeline:
         model_path = get_latest_model_path()
         self.model_data = joblib.load(model_path)
         logger.info(f"Loaded model from {model_path}")
+
+        # Load bet selector if enabled
+        self.selector = None
+        self.market_extractor = None
+        if self.use_selector:
+            from src.market import MarketFeatureExtractor, BetSelector
+            selector_path = BET_SELECTOR.get('model_path', 'models/production/bet_selector.joblib')
+            selector_full_path = Path(__file__).parent.parent / selector_path
+            if selector_full_path.exists():
+                self.selector = BetSelector(min_confidence=BET_SELECTOR.get('min_confidence', 0.5))
+                self.selector.load(str(selector_full_path))
+                self.market_extractor = MarketFeatureExtractor()
+                logger.info(f"Loaded bet selector from {selector_full_path}")
+            else:
+                logger.warning(f"Bet selector not found at {selector_full_path}, falling back to thresholds")
+                self.use_selector = False
 
         logger.info("\n" + "=" * 60)
         logger.info("PIPELINE READY")
@@ -483,33 +502,51 @@ class LivePipeline:
         # Get odds
         odds = extract_odds(fixture)
 
-        # Apply thresholds and odds filter
+        # Apply betting logic
         bet_outcome = None
         bet_probability = None
         bet_odds = None
         should_bet = False
 
-        candidates = []
-        if p_home >= self.thresholds['home']:
-            candidates.append(('Home Win', p_home, odds.get('best_home_odds')))
-        if p_away >= self.thresholds['away']:
-            candidates.append(('Away Win', p_away, odds.get('best_away_odds')))
-        if p_draw >= self.thresholds['draw']:
-            candidates.append(('Draw', p_draw, odds.get('best_draw_odds')))
+        if self.use_selector and self.selector and self.market_extractor:
+            # Selector mode: use ML model with market features
+            market_feats = self.market_extractor.extract_from_api(fixture.get('odds', []))
+            if market_feats is not None:
+                model_probs = {'home': p_home, 'draw': p_draw, 'away': p_away}
+                full_feats = self.market_extractor.build_full_features(market_feats, model_probs)
+                should_bet = self.selector.predict(full_feats)
 
-        # Filter by odds range (skip if odds not available, e.g. backtest mode)
-        has_odds = any(odd is not None for _, _, odd in candidates)
-        if has_odds and self.odds_filter.get('enabled', True):
-            min_odds = self.odds_filter.get('min', 1.3)
-            max_odds = self.odds_filter.get('max', 3.0)
-            candidates = [(o, p, odd) for o, p, odd in candidates
-                         if odd and min_odds <= odd <= max_odds]
+                if should_bet:
+                    # Determine which outcome to bet on (highest model prob)
+                    prob_map = {'Home Win': (p_home, odds.get('best_home_odds')),
+                                'Away Win': (p_away, odds.get('best_away_odds')),
+                                'Draw': (p_draw, odds.get('best_draw_odds'))}
+                    best_outcome = max(prob_map, key=lambda k: prob_map[k][0])
+                    bet_outcome = best_outcome
+                    bet_probability, bet_odds = prob_map[best_outcome]
+        else:
+            # Threshold mode: existing logic
+            candidates = []
+            if p_home >= self.thresholds['home']:
+                candidates.append(('Home Win', p_home, odds.get('best_home_odds')))
+            if p_away >= self.thresholds['away']:
+                candidates.append(('Away Win', p_away, odds.get('best_away_odds')))
+            if p_draw >= self.thresholds['draw']:
+                candidates.append(('Draw', p_draw, odds.get('best_draw_odds')))
 
-        if candidates:
-            # Pick highest probability
-            best = max(candidates, key=lambda x: x[1])
-            bet_outcome, bet_probability, bet_odds = best
-            should_bet = True
+            # Filter by odds range (skip if odds not available, e.g. backtest mode)
+            has_odds = any(odd is not None for _, _, odd in candidates)
+            if has_odds and self.odds_filter.get('enabled', True):
+                min_odds = self.odds_filter.get('min', 1.3)
+                max_odds = self.odds_filter.get('max', 3.0)
+                candidates = [(o, p, odd) for o, p, odd in candidates
+                             if odd and min_odds <= odd <= max_odds]
+
+            if candidates:
+                # Pick highest probability
+                best = max(candidates, key=lambda x: x[1])
+                bet_outcome, bet_probability, bet_odds = best
+                should_bet = True
 
         # Extract team info
         participants = fixture.get('participants', [])
@@ -626,6 +663,7 @@ def main():
     parser.add_argument('--history-days', type=int, default=365, help='Days of history to load')
     parser.add_argument('--strategy', choices=list(STRATEGY_PROFILES.keys()), help='Betting strategy')
     parser.add_argument('--dry-run', action='store_true', help='Do not save to database')
+    parser.add_argument('--use-selector', action='store_true', help='Use ML bet selector (bypasses thresholds)')
     parser.add_argument('--start-date', help='Backtest start date (YYYY-MM-DD)')
     parser.add_argument('--end-date', help='Backtest end date (YYYY-MM-DD)')
 
@@ -652,7 +690,8 @@ def main():
             api_key,
             history_days=args.history_days,
             strategy=args.strategy,
-            reference_date=reference_date
+            reference_date=reference_date,
+            use_selector=args.use_selector
         )
 
         # Fetch finished fixtures in the backtest window (with odds for PnL)
@@ -716,7 +755,7 @@ def main():
     # =========================================================================
     # LIVE MODE (existing behavior)
     # =========================================================================
-    pipeline = LivePipeline(api_key, history_days=args.history_days, strategy=args.strategy)
+    pipeline = LivePipeline(api_key, history_days=args.history_days, strategy=args.strategy, use_selector=args.use_selector)
 
     # Fetch upcoming fixtures
     logger.info(f"\nFetching fixtures for next {args.days_ahead} days...")
