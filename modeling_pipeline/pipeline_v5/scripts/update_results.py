@@ -200,8 +200,13 @@ class ResultUpdater:
             market_updated = self.db.update_market_actuals_batch(results)
             if market_updated > 0:
                 logger.info(f"Updated {market_updated} market prediction actuals")
+
+            # Calculate bet results for goals market bets
+            bet_updated = self.db.update_market_bet_results_batch(results)
+            if bet_updated > 0:
+                logger.info(f"Updated {bet_updated} market bet results (O/U 2.5, BTTS)")
         except Exception as e:
-            logger.debug(f"Market actuals update skipped: {e}")
+            logger.debug(f"Market actuals/bet update skipped: {e}")
 
         # Summary
         logger.info("\n" + "=" * 60)

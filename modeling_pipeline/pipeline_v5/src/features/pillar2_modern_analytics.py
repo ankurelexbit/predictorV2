@@ -75,7 +75,7 @@ class Pillar2ModernAnalyticsEngine:
         features.update(self._get_attack_features(
             home_team_id, away_team_id, home_recent, away_recent
         ))
-        
+
         return features
     
     def _get_derived_xg_features(
@@ -484,4 +484,5 @@ class Pillar2ModernAnalyticsEngine:
             'dangerous_ratio': float(sum(dangerous_attacks_list) / total_attacks) if total_attacks > 0 else 0.0,
             'shots_per_attack': float(total_shots / total_attacks) if total_attacks > 0 else 0.0,
         }
+
 

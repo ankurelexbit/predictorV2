@@ -41,7 +41,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config.production_config import (
     DATABASE_URL, TOP_5_LEAGUES,
-    FILTER_TOP_5_ONLY, BETTING_STRATEGIES,
+    FILTER_TOP_5_ONLY, BETTING_STRATEGIES, GOALS_BETTING_STRATEGIES,
     EloConfig, get_latest_model_path, get_latest_goals_model_path,
 )
 from src.goals import PoissonGoalsModel
@@ -321,6 +321,145 @@ def extract_odds(fixture: dict) -> dict:
     }
 
 
+def extract_goals_odds(fixture: dict) -> dict:
+    """Extract Over/Under 2.5 and BTTS odds from fixture.
+
+    SportMonks market IDs:
+        market_id=80: Over/Under (labels: Over/Under, total field = line e.g. 2.5)
+        market_id=14: BTTS (labels: Yes/No)
+    """
+    odds_data = fixture.get('odds', [])
+    all_over_2_5, all_under_2_5 = [], []
+    all_btts_yes, all_btts_no = [], []
+
+    for odd in odds_data:
+        market_id = odd.get('market_id')
+        label = (odd.get('label') or '').lower().strip()
+        value = odd.get('value')
+        if value is None:
+            continue
+        try:
+            value = float(value)
+        except (ValueError, TypeError):
+            continue
+
+        if market_id == 80:
+            # Over/Under — filter for 2.5 line
+            total = odd.get('total')
+            if total is not None:
+                try:
+                    total = float(total)
+                except (ValueError, TypeError):
+                    continue
+                if abs(total - 2.5) < 0.01:
+                    if label == 'over':
+                        all_over_2_5.append(value)
+                    elif label == 'under':
+                        all_under_2_5.append(value)
+
+        elif market_id == 14:
+            # BTTS
+            if label == 'yes':
+                all_btts_yes.append(value)
+            elif label == 'no':
+                all_btts_no.append(value)
+
+    return {
+        'ou_2_5_over_odds': max(all_over_2_5) if all_over_2_5 else None,
+        'ou_2_5_under_odds': max(all_under_2_5) if all_under_2_5 else None,
+        'btts_yes_odds': max(all_btts_yes) if all_btts_yes else None,
+        'btts_no_odds': max(all_btts_no) if all_btts_no else None,
+    }
+
+
+def evaluate_goals_bets(market_pred: dict, goals_odds: dict,
+                        strategies: dict = None) -> dict:
+    """Evaluate value-based betting decisions for goals markets.
+
+    Compares model probabilities to implied probabilities from bookmaker odds.
+    Bets when edge (model_prob - implied_prob) exceeds threshold.
+
+    Args:
+        market_pred: Market prediction dict with over_2_5_prob, btts_prob, etc.
+        goals_odds: Dict from extract_goals_odds() with best odds.
+        strategies: GOALS_BETTING_STRATEGIES config dict.
+
+    Returns:
+        Dict with bet decisions to merge into market_pred.
+    """
+    if strategies is None:
+        strategies = GOALS_BETTING_STRATEGIES
+
+    result = {}
+    result.update(goals_odds)  # Always store odds
+
+    # --- O/U 2.5 ---
+    ou_cfg = strategies.get('ou_2_5', {})
+    if ou_cfg.get('enabled', False):
+        over_prob = market_pred.get('over_2_5_prob')
+        over_odds = goals_odds.get('ou_2_5_over_odds')
+        under_odds = goals_odds.get('ou_2_5_under_odds')
+
+        if over_prob is not None:
+            under_prob = 1.0 - over_prob
+            min_edge = ou_cfg.get('min_edge', 0.05)
+            min_odds = ou_cfg.get('min_odds', 1.5)
+            max_odds = ou_cfg.get('max_odds', 3.0)
+            min_prob = ou_cfg.get('min_prob', 0.55)
+
+            # Check Over bet
+            if over_odds and over_prob >= min_prob and min_odds <= over_odds <= max_odds:
+                over_implied = 1.0 / over_odds
+                edge = over_prob - over_implied
+                if edge >= min_edge:
+                    result['ou_2_5_bet'] = 'over'
+                    result['ou_2_5_bet_odds'] = float(over_odds)
+                    result['ou_2_5_edge'] = round(float(edge), 4)
+
+            # Check Under bet (only if no Over bet)
+            if 'ou_2_5_bet' not in result and under_odds and under_prob >= min_prob and min_odds <= under_odds <= max_odds:
+                under_implied = 1.0 / under_odds
+                edge = under_prob - under_implied
+                if edge >= min_edge:
+                    result['ou_2_5_bet'] = 'under'
+                    result['ou_2_5_bet_odds'] = float(under_odds)
+                    result['ou_2_5_edge'] = round(float(edge), 4)
+
+    # --- BTTS ---
+    btts_cfg = strategies.get('btts', {})
+    if btts_cfg.get('enabled', False):
+        btts_prob = market_pred.get('btts_prob')
+        yes_odds = goals_odds.get('btts_yes_odds')
+        no_odds = goals_odds.get('btts_no_odds')
+
+        if btts_prob is not None:
+            no_prob = 1.0 - btts_prob
+            min_edge = btts_cfg.get('min_edge', 0.05)
+            min_odds = btts_cfg.get('min_odds', 1.5)
+            max_odds = btts_cfg.get('max_odds', 3.0)
+            min_prob = btts_cfg.get('min_prob', 0.55)
+
+            # Check Yes bet
+            if yes_odds and btts_prob >= min_prob and min_odds <= yes_odds <= max_odds:
+                yes_implied = 1.0 / yes_odds
+                edge = btts_prob - yes_implied
+                if edge >= min_edge:
+                    result['btts_bet'] = 'yes'
+                    result['btts_bet_odds'] = float(yes_odds)
+                    result['btts_edge'] = round(float(edge), 4)
+
+            # Check No bet (only if no Yes bet)
+            if 'btts_bet' not in result and no_odds and no_prob >= min_prob and min_odds <= no_odds <= max_odds:
+                no_implied = 1.0 / no_odds
+                edge = no_prob - no_implied
+                if edge >= min_edge:
+                    result['btts_bet'] = 'no'
+                    result['btts_bet_odds'] = float(no_odds)
+                    result['btts_edge'] = round(float(edge), 4)
+
+    return result
+
+
 class LivePipeline:
     """Live prediction pipeline with multi-strategy support."""
 
@@ -551,7 +690,7 @@ class LivePipeline:
         if self.goals_model is not None:
             try:
                 lh, la = self.goals_model.predict_single(X)
-                markets = PoissonGoalsModel.derive_markets(lh, la)
+                markets = self.goals_model.derive_markets(lh, la)
                 market_pred = {
                     'fixture_id': fixture.get('id'),
                     'match_date': fixture.get('starting_at'),
@@ -562,6 +701,12 @@ class LivePipeline:
                 }
             except Exception as e:
                 logger.warning(f"Goals model failed for fixture {fixture.get('id')}: {e}")
+
+        # Evaluate goals market bets (if market_pred exists and odds available)
+        if market_pred is not None:
+            goals_odds = extract_goals_odds(fixture)
+            bet_decisions = evaluate_goals_bets(market_pred, goals_odds)
+            market_pred.update(bet_decisions)
 
         # Evaluate each strategy independently
         results = []
@@ -733,11 +878,12 @@ def print_live_summary(predictions: list):
 
 
 def print_market_summary(market_predictions: list):
-    """Print market predictions (O/U, BTTS, top scoreline) per fixture."""
+    """Print market predictions (O/U, BTTS, top scoreline) + betting recommendations."""
     logger.info("\n" + "=" * 100)
     logger.info("MARKET PREDICTIONS (Goals Model)")
     logger.info("=" * 100)
 
+    market_bets = []
     for mp in sorted(market_predictions, key=lambda x: str(x.get('match_date', ''))):
         date_str = str(mp.get('match_date', ''))[:10]
         logger.info(f"\n{date_str}: {mp.get('home_team_name')} vs {mp.get('away_team_name')}")
@@ -749,6 +895,82 @@ def print_market_summary(market_predictions: list):
         if scorelines:
             sl_str = ', '.join(f"{s['home']}-{s['away']} ({s['prob']:.1%})" for s in scorelines[:3])
             logger.info(f"  Top scorelines: {sl_str}")
+
+        # Show odds and betting decisions
+        odds_parts = []
+        if mp.get('ou_2_5_over_odds'):
+            odds_parts.append(f"O/U 2.5: {mp['ou_2_5_over_odds']:.2f}/{mp.get('ou_2_5_under_odds', 0):.2f}")
+        if mp.get('btts_yes_odds'):
+            odds_parts.append(f"BTTS: {mp['btts_yes_odds']:.2f}/{mp.get('btts_no_odds', 0):.2f}")
+        if odds_parts:
+            logger.info(f"  Odds: {' | '.join(odds_parts)}")
+
+        bets = []
+        if mp.get('ou_2_5_bet'):
+            bets.append(f"O/U 2.5 {mp['ou_2_5_bet'].upper()} @ {mp['ou_2_5_bet_odds']:.2f} (edge={mp['ou_2_5_edge']:.1%})")
+        if mp.get('btts_bet'):
+            bets.append(f"BTTS {mp['btts_bet'].upper()} @ {mp['btts_bet_odds']:.2f} (edge={mp['btts_edge']:.1%})")
+        if bets:
+            logger.info(f"  >>> BET: {' | '.join(bets)}")
+            market_bets.append(mp)
+
+    # Summary
+    ou_bets = [mp for mp in market_predictions if mp.get('ou_2_5_bet')]
+    btts_bets = [mp for mp in market_predictions if mp.get('btts_bet')]
+    logger.info(f"\n--- Goals Market Bets Summary ---")
+    logger.info(f"  O/U 2.5 bets: {len(ou_bets)} | BTTS bets: {len(btts_bets)}")
+    logger.info("=" * 100)
+
+
+def print_market_backtest_summary(market_predictions: list):
+    """Print backtest PnL for goals market bets."""
+    ou_bets = [mp for mp in market_predictions if mp.get('ou_2_5_bet')]
+    btts_bets = [mp for mp in market_predictions if mp.get('btts_bet')]
+
+    if not ou_bets and not btts_bets:
+        return
+
+    logger.info("\n" + "=" * 100)
+    logger.info("GOALS MARKET BACKTEST PnL")
+    logger.info("=" * 100)
+
+    for label, bets, bet_key, odds_key in [
+        ('O/U 2.5', ou_bets, 'ou_2_5_bet', 'ou_2_5_bet_odds'),
+        ('BTTS', btts_bets, 'btts_bet', 'btts_bet_odds'),
+    ]:
+        if not bets:
+            logger.info(f"\n{label}: No bets")
+            continue
+
+        wins, losses, profit = 0, 0, 0.0
+        for mp in bets:
+            actual_h = mp.get('actual_home_score')
+            actual_a = mp.get('actual_away_score')
+            if actual_h is None or actual_a is None:
+                continue
+
+            bet_dir = mp[bet_key]
+            bet_odds = mp[odds_key]
+
+            if label == 'O/U 2.5':
+                actual_over = (actual_h + actual_a) > 2.5
+                won = (bet_dir == 'over' and actual_over) or (bet_dir == 'under' and not actual_over)
+            else:  # BTTS
+                actual_btts = actual_h >= 1 and actual_a >= 1
+                won = (bet_dir == 'yes' and actual_btts) or (bet_dir == 'no' and not actual_btts)
+
+            if won:
+                wins += 1
+                profit += (bet_odds - 1)
+            else:
+                losses += 1
+                profit -= 1.0
+
+        total = wins + losses
+        wr = wins / total * 100 if total > 0 else 0
+        roi = profit / total * 100 if total > 0 else 0
+        logger.info(f"\n{label}:")
+        logger.info(f"  Bets: {total} | Wins: {wins} | WR: {wr:.1f}% | Profit: ${profit:.2f} | ROI: {roi:.1f}%")
 
     logger.info("\n" + "=" * 100)
 
@@ -835,6 +1057,9 @@ def main():
                 logger.warning(f"Failed to predict fixture {fixture.get('id')}: {e}")
 
         print_backtest_summary(predictions, args.start_date, args.end_date)
+        if market_predictions:
+            print_market_summary(market_predictions)
+            print_market_backtest_summary(market_predictions)
 
         if not args.dry_run and predictions:
             logger.info("\nSaving to database...")

@@ -1,10 +1,13 @@
 """
-Poisson Goals Model
-====================
+Poisson Goals Model with Dixon-Coles Correction
+=================================================
 
 Predicts expected home/away goals using CatBoost + LightGBM regressors,
 then derives advanced market probabilities (O/U, BTTS, Handicap, Correct Score)
-from independent Poisson distributions.
+from Poisson distributions with the Dixon-Coles low-score correction.
+
+The Dixon-Coles adjustment corrects for the independence assumption by
+modifying P(0-0), P(1-0), P(0-1), and P(1-1) via a correlation parameter rho.
 
 One model → all markets.
 """
@@ -16,6 +19,7 @@ import numpy as np
 import pandas as pd
 import joblib
 from scipy.stats import poisson
+from scipy.optimize import minimize_scalar
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +27,26 @@ logger = logging.getLogger(__name__)
 MAX_GOALS = 10
 
 
+def _dixon_coles_tau(x: int, y: int, lambda_h: float, lambda_a: float, rho: float) -> float:
+    """Dixon-Coles adjustment factor for low-scoring outcomes.
+
+    Corrects the independent Poisson assumption for 0-0, 1-0, 0-1, 1-1.
+    Returns a multiplicative correction to the independent probability.
+    """
+    if x == 0 and y == 0:
+        return 1.0 - lambda_h * lambda_a * rho
+    elif x == 1 and y == 0:
+        return 1.0 + lambda_a * rho
+    elif x == 0 and y == 1:
+        return 1.0 + lambda_h * rho
+    elif x == 1 and y == 1:
+        return 1.0 - rho
+    else:
+        return 1.0
+
+
 class PoissonGoalsModel:
-    """Poisson-based goal prediction model for advanced betting markets."""
+    """Poisson-based goal prediction model with Dixon-Coles correction."""
 
     def __init__(self):
         self.home_cat = None
@@ -32,17 +54,19 @@ class PoissonGoalsModel:
         self.away_cat = None
         self.away_lgb = None
         self.feature_cols = None
+        self.rho = 0.0  # Dixon-Coles correlation parameter
 
     def train(self, X: pd.DataFrame, y_home: np.ndarray, y_away: np.ndarray,
               X_val: pd.DataFrame = None, y_home_val: np.ndarray = None, y_away_val: np.ndarray = None,
               cat_params: dict = None, lgb_params: dict = None):
-        """Train CatBoost + LightGBM regressors for home and away goals.
+        """Train CatBoost + LightGBM regressors for home and away goals,
+        then estimate Dixon-Coles rho on validation data.
 
         Args:
             X: Training features DataFrame.
             y_home: Home goals target.
             y_away: Away goals target.
-            X_val: Optional validation features (for early stopping).
+            X_val: Optional validation features (for early stopping + rho estimation).
             y_home_val: Optional validation home goals.
             y_away_val: Optional validation away goals.
             cat_params: Optional CatBoost hyperparameters (overrides defaults).
@@ -109,6 +133,39 @@ class PoissonGoalsModel:
         logger.info(f"Training MAE — home: {np.mean(np.abs(home_pred[0] - y_home)):.3f}, "
                      f"away: {np.mean(np.abs(home_pred[1] - y_away)):.3f}")
 
+        # Estimate Dixon-Coles rho on validation data (or training if no val)
+        if X_val is not None:
+            self._estimate_rho(X_val_clean, y_home_val, y_away_val)
+        else:
+            self._estimate_rho(X_clean, y_home, y_away)
+
+    def _estimate_rho(self, X: pd.DataFrame, y_home: np.ndarray, y_away: np.ndarray):
+        """Estimate Dixon-Coles rho parameter via maximum likelihood.
+
+        Finds rho that maximizes the log-likelihood of observed scores given
+        predicted lambdas, using the Dixon-Coles tau adjustment.
+        """
+        lh, la = self._predict_raw(X)
+        y_h = y_home.astype(int)
+        y_a = y_away.astype(int)
+
+        def neg_log_likelihood(rho):
+            ll = 0.0
+            for i in range(len(y_h)):
+                tau = _dixon_coles_tau(y_h[i], y_a[i], lh[i], la[i], rho)
+                if tau <= 0:
+                    return 1e10  # Invalid rho — tau must be positive
+                ll += np.log(tau)
+                # Poisson log-likelihood terms are constant w.r.t. rho, skip them
+            return -ll
+
+        # Bounded search: rho typically in [-0.3, 0.3]
+        result = minimize_scalar(neg_log_likelihood, bounds=(-0.3, 0.3), method='bounded')
+        self.rho = float(result.x)
+
+        logger.info(f"Dixon-Coles rho estimated: {self.rho:.4f} "
+                    f"(neg_ll improvement: {neg_log_likelihood(0) - result.fun:.2f})")
+
     def predict(self, X: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
         """Predict expected goals (lambda parameters).
 
@@ -139,30 +196,54 @@ class PoissonGoalsModel:
         return float(lh[0]), float(la[0])
 
     @staticmethod
-    def build_score_matrix(lambda_home: float, lambda_away: float) -> np.ndarray:
-        """Build score probability matrix P(home=i, away=j).
+    def build_score_matrix(lambda_home: float, lambda_away: float,
+                           rho: float = 0.0) -> np.ndarray:
+        """Build score probability matrix P(home=i, away=j) with Dixon-Coles correction.
 
-        Assumes independent Poisson distributions for home and away goals.
+        The base matrix is independent Poisson. For the four low-scoring outcomes
+        (0-0, 1-0, 0-1, 1-1), the Dixon-Coles tau factor is applied to correct
+        for correlation between home and away goals.
+
+        Args:
+            lambda_home: Expected home goals.
+            lambda_away: Expected away goals.
+            rho: Dixon-Coles correlation parameter (0 = independent Poisson).
 
         Returns:
             (MAX_GOALS+1) x (MAX_GOALS+1) matrix where entry [i][j] = P(home=i, away=j).
         """
         home_probs = poisson.pmf(np.arange(MAX_GOALS + 1), lambda_home)
         away_probs = poisson.pmf(np.arange(MAX_GOALS + 1), lambda_away)
-        return np.outer(home_probs, away_probs)
+        matrix = np.outer(home_probs, away_probs)
 
-    @staticmethod
-    def derive_markets(lambda_home: float, lambda_away: float) -> Dict:
+        # Apply Dixon-Coles correction to low-scoring cells
+        if rho != 0.0:
+            matrix[0][0] *= _dixon_coles_tau(0, 0, lambda_home, lambda_away, rho)
+            matrix[1][0] *= _dixon_coles_tau(1, 0, lambda_home, lambda_away, rho)
+            matrix[0][1] *= _dixon_coles_tau(0, 1, lambda_home, lambda_away, rho)
+            matrix[1][1] *= _dixon_coles_tau(1, 1, lambda_home, lambda_away, rho)
+
+            # Renormalize so probabilities sum to 1
+            matrix /= matrix.sum()
+
+        return matrix
+
+    def derive_markets(self, lambda_home: float, lambda_away: float,
+                       rho: float = None) -> Dict:
         """Derive all market probabilities from Poisson parameters.
 
         Args:
             lambda_home: Expected home goals.
             lambda_away: Expected away goals.
+            rho: Dixon-Coles rho. If None, uses self.rho.
 
         Returns:
             Dict with probabilities for O/U, BTTS, handicap, and top scorelines.
         """
-        matrix = PoissonGoalsModel.build_score_matrix(lambda_home, lambda_away)
+        if rho is None:
+            rho = self.rho if hasattr(self, 'rho') else 0.0
+
+        matrix = self.build_score_matrix(lambda_home, lambda_away, rho)
         n = MAX_GOALS + 1
 
         # Over/Under
@@ -183,10 +264,8 @@ class PoissonGoalsModel:
         over_2_5 = 1 - under_probs.get(2, 0)
         over_3_5 = 1 - under_probs.get(3, 0)
 
-        # BTTS: P(home>=1 AND away>=1) = 1 - P(home=0) - P(away=0) + P(both=0)
-        p_home_zero = poisson.pmf(0, lambda_home)
-        p_away_zero = poisson.pmf(0, lambda_away)
-        btts = 1 - p_home_zero - p_away_zero + (p_home_zero * p_away_zero)
+        # BTTS from the corrected matrix (not raw Poisson)
+        btts = 1.0 - matrix[0, :].sum() - matrix[:, 0].sum() + matrix[0][0]
 
         # Asian Handicap (home perspective): P(home - away > line)
         handicaps = {}
@@ -224,13 +303,14 @@ class PoissonGoalsModel:
         }
 
     def save(self, path: str):
-        """Save all 4 regressors + feature_cols to disk."""
+        """Save all 4 regressors + feature_cols + rho to disk."""
         joblib.dump({
             'home_cat': self.home_cat,
             'home_lgb': self.home_lgb,
             'away_cat': self.away_cat,
             'away_lgb': self.away_lgb,
             'feature_cols': self.feature_cols,
+            'rho': self.rho,
         }, path)
         logger.info(f"Saved goals model to {path}")
 
@@ -242,7 +322,8 @@ class PoissonGoalsModel:
         self.away_cat = data['away_cat']
         self.away_lgb = data['away_lgb']
         self.feature_cols = data['feature_cols']
-        logger.info(f"Loaded goals model from {path} ({len(self.feature_cols)} features)")
+        self.rho = data.get('rho', 0.0)  # Backward compat with pre-DC models
+        logger.info(f"Loaded goals model from {path} ({len(self.feature_cols)} features, rho={self.rho:.4f})")
 
 
 def _lgb_early_stopping(stopping_rounds: int):

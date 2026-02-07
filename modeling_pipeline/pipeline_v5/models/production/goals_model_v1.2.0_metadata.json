@@ -1,0 +1,27 @@
+{
+  "version": "1.2.0",
+  "timestamp": "2026-02-07T12:51:03.331725",
+  "model_type": "PoissonGoalsModel (CatBoost+LightGBM Poisson regressors)",
+  "tuned": false,
+  "tuning_trials": 0,
+  "features": 162,
+  "train_size": 12560,
+  "test_size": 2692,
+  "test_metrics": {
+    "goal_metrics": {
+      "home_mae": 0.9546,
+      "away_mae": 0.8681,
+      "home_bias": 0.0224,
+      "away_bias": -0.0266,
+      "mean_pred_home": 1.539,
+      "mean_actual_home": 1.517,
+      "mean_pred_away": 1.268,
+      "mean_actual_away": 1.294
+    },
+    "market_metrics": {
+      "over_2_5_accuracy": 0.565,
+      "btts_accuracy": 0.5342
+    },
+    "dixon_coles_rho": -0.04461710217489882
+  }
+}

@@ -149,7 +149,7 @@ def evaluate_derived_markets(model: PoissonGoalsModel, X: pd.DataFrame,
     btts_probs = []
 
     for i in range(n):
-        markets = PoissonGoalsModel.derive_markets(float(lh[i]), float(la[i]))
+        markets = model.derive_markets(float(lh[i]), float(la[i]))
 
         # O/U 2.5
         pred_over = markets['over_2_5_prob'] > 0.5
@@ -195,6 +195,132 @@ def evaluate_derived_markets(model: PoissonGoalsModel, X: pd.DataFrame,
     }
 
 
+def tune_hyperparameters(X_train: pd.DataFrame, y_home_train: np.ndarray, y_away_train: np.ndarray,
+                         X_val: pd.DataFrame, y_home_val: np.ndarray, y_away_val: np.ndarray,
+                         feature_cols: list, n_trials: int = 100) -> tuple:
+    """Tune CatBoost and LightGBM hyperparameters independently using Optuna.
+
+    Optimizes Poisson deviance (negative log-likelihood) on validation set,
+    averaged over home + away goals predictions.
+
+    Returns:
+        (best_cat_params, best_lgb_params) dicts ready for PoissonGoalsModel.train()
+    """
+    try:
+        import optuna
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+    except ImportError:
+        logger.error("Optuna not installed. Run: pip install optuna")
+        return None, None
+
+    from catboost import CatBoostRegressor
+    from lightgbm import LGBMRegressor, early_stopping
+
+    X_train_clean = X_train[feature_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
+    X_val_clean = X_val[feature_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
+
+    # =========================================================================
+    # 1. Tune CatBoost
+    # =========================================================================
+    logger.info(f"\n[1/2] Tuning CatBoost ({n_trials} trials)...")
+
+    def catboost_objective(trial):
+        params = {
+            'iterations': trial.suggest_int('iterations', 300, 800),
+            'depth': trial.suggest_int('depth', 4, 10),
+            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.15, log=True),
+            'l2_leaf_reg': trial.suggest_float('l2_leaf_reg', 1, 15),
+            'min_data_in_leaf': trial.suggest_int('min_data_in_leaf', 1, 30),
+            'loss_function': 'Poisson',
+            'random_seed': 42,
+            'verbose': 0,
+        }
+
+        total_mae = 0.0
+        for y_train, y_val in [(y_home_train, y_home_val), (y_away_train, y_away_val)]:
+            model = CatBoostRegressor(**params)
+            model.fit(X_train_clean, y_train,
+                      eval_set=(X_val_clean, y_val),
+                      early_stopping_rounds=50, verbose=False)
+            preds = np.maximum(model.predict(X_val_clean), 0.05)
+            total_mae += np.mean(np.abs(preds - y_val))
+
+        return total_mae / 2  # Average MAE across home + away
+
+    cb_study = optuna.create_study(direction='minimize')
+    cb_study.optimize(catboost_objective, n_trials=n_trials, show_progress_bar=True)
+
+    logger.info(f"  Best CatBoost MAE: {cb_study.best_value:.4f}")
+    logger.info(f"  Best params: {cb_study.best_params}")
+
+    best_cat_params = {
+        'iterations': cb_study.best_params['iterations'],
+        'depth': cb_study.best_params['depth'],
+        'learning_rate': cb_study.best_params['learning_rate'],
+        'l2_leaf_reg': cb_study.best_params['l2_leaf_reg'],
+        'min_data_in_leaf': cb_study.best_params['min_data_in_leaf'],
+        'loss_function': 'Poisson',
+        'verbose': 0,
+    }
+
+    # =========================================================================
+    # 2. Tune LightGBM
+    # =========================================================================
+    logger.info(f"\n[2/2] Tuning LightGBM ({n_trials} trials)...")
+
+    def lightgbm_objective(trial):
+        params = {
+            'n_estimators': trial.suggest_int('n_estimators', 300, 800),
+            'max_depth': trial.suggest_int('max_depth', 4, 10),
+            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.15, log=True),
+            'reg_lambda': trial.suggest_float('reg_lambda', 1, 15),
+            'reg_alpha': trial.suggest_float('reg_alpha', 0, 10),
+            'num_leaves': trial.suggest_int('num_leaves', 20, 100),
+            'min_child_samples': trial.suggest_int('min_child_samples', 5, 50),
+            'objective': 'poisson',
+            'random_state': 42,
+            'verbose': -1,
+        }
+
+        total_mae = 0.0
+        for y_train, y_val in [(y_home_train, y_home_val), (y_away_train, y_away_val)]:
+            model = LGBMRegressor(**params)
+            model.fit(X_train_clean, y_train,
+                      eval_set=[(X_val_clean, y_val)],
+                      callbacks=[early_stopping(50, verbose=False)])
+            preds = np.maximum(model.predict(X_val_clean), 0.05)
+            total_mae += np.mean(np.abs(preds - y_val))
+
+        return total_mae / 2
+
+    lgb_study = optuna.create_study(direction='minimize')
+    lgb_study.optimize(lightgbm_objective, n_trials=n_trials, show_progress_bar=True)
+
+    logger.info(f"  Best LightGBM MAE: {lgb_study.best_value:.4f}")
+    logger.info(f"  Best params: {lgb_study.best_params}")
+
+    best_lgb_params = {
+        'n_estimators': lgb_study.best_params['n_estimators'],
+        'max_depth': lgb_study.best_params['max_depth'],
+        'learning_rate': lgb_study.best_params['learning_rate'],
+        'reg_lambda': lgb_study.best_params['reg_lambda'],
+        'reg_alpha': lgb_study.best_params['reg_alpha'],
+        'num_leaves': lgb_study.best_params['num_leaves'],
+        'min_child_samples': lgb_study.best_params['min_child_samples'],
+        'objective': 'poisson',
+        'verbose': -1,
+    }
+
+    # Summary
+    logger.info(f"\n{'='*60}")
+    logger.info("TUNING SUMMARY")
+    logger.info(f"{'='*60}")
+    logger.info(f"CatBoost best avg MAE:  {cb_study.best_value:.4f}")
+    logger.info(f"LightGBM best avg MAE:  {lgb_study.best_value:.4f}")
+
+    return best_cat_params, best_lgb_params
+
+
 def get_next_goals_version(model_dir: Path) -> str:
     """Get next version for goals model."""
     import re
@@ -220,6 +346,8 @@ def main():
     parser.add_argument('--data', required=True, help='Path to training data CSV')
     parser.add_argument('--version', help='Model version (default: auto-increment)')
     parser.add_argument('--output-dir', default='models/production', help='Model output directory')
+    parser.add_argument('--tune', action='store_true', help='Enable hyperparameter tuning with Optuna')
+    parser.add_argument('--trials', type=int, default=100, help='Number of Optuna trials per model (default: 100)')
 
     args = parser.parse_args()
 
@@ -242,14 +370,30 @@ def main():
     y_home_test = test_df['home_score'].values.astype(float)
     y_away_test = test_df['away_score'].values.astype(float)
 
+    # Optionally tune hyperparameters
+    best_cat_params = None
+    best_lgb_params = None
+
+    if args.tune:
+        logger.info("\n" + "=" * 80)
+        logger.info(f"HYPERPARAMETER TUNING ({args.trials} trials per model)")
+        logger.info("=" * 80)
+
+        best_cat_params, best_lgb_params = tune_hyperparameters(
+            X_train, y_home_train, y_away_train,
+            X_val, y_home_val, y_away_val,
+            feature_cols, n_trials=args.trials,
+        )
+
     # Train model
     logger.info("\n" + "=" * 80)
-    logger.info("TRAINING")
+    logger.info("TRAINING" + (" (with tuned params)" if args.tune else ""))
     logger.info("=" * 80)
 
     model = PoissonGoalsModel()
     model.train(X_train, y_home_train, y_away_train,
-                X_val, y_home_val, y_away_val)
+                X_val, y_home_val, y_away_val,
+                cat_params=best_cat_params, lgb_params=best_lgb_params)
 
     # Evaluate on test set
     logger.info("\n" + "=" * 80)
@@ -321,17 +465,24 @@ def main():
             'over_2_5_accuracy': market_metrics['over_2_5_accuracy'],
             'btts_accuracy': market_metrics['btts_accuracy'],
         },
+        'dixon_coles_rho': model.rho,
     }
 
     metadata = {
         'version': version,
         'timestamp': datetime.now().isoformat(),
         'model_type': 'PoissonGoalsModel (CatBoost+LightGBM Poisson regressors)',
+        'tuned': args.tune,
+        'tuning_trials': args.trials if args.tune else 0,
         'features': len(feature_cols),
         'train_size': len(train_df),
         'test_size': len(test_df),
         'test_metrics': all_metrics,
     }
+    if best_cat_params:
+        metadata['catboost_params'] = {k: v for k, v in best_cat_params.items() if k != 'verbose'}
+    if best_lgb_params:
+        metadata['lightgbm_params'] = {k: v for k, v in best_lgb_params.items() if k != 'verbose'}
 
     metadata_path = model_dir / f"goals_model_v{version}_metadata.json"
     with open(metadata_path, 'w') as f:
@@ -350,6 +501,7 @@ def main():
     logger.info("=" * 80)
     logger.info(f"Model:     goals_model_v{version}.joblib")
     logger.info(f"Features:  {len(feature_cols)}")
+    logger.info(f"DC rho:    {model.rho:.4f}")
     logger.info(f"Home MAE:  {goal_metrics['home_mae']:.4f}")
     logger.info(f"Away MAE:  {goal_metrics['away_mae']:.4f}")
     logger.info(f"O/U 2.5:   {market_metrics['over_2_5_accuracy']*100:.1f}% accuracy")

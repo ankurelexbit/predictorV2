@@ -124,6 +124,7 @@ def display_market_report(db: DatabaseClient, days: int = None,
                 top3_score_hits += 1
 
     # Print report
+    import numpy as np
     print("=" * 70)
     print("MARKET PREDICTIONS ACCURACY REPORT")
     print("=" * 70)
@@ -133,7 +134,6 @@ def display_market_report(db: DatabaseClient, days: int = None,
     print()
 
     # Goal prediction accuracy
-    import numpy as np
     print("GOAL PREDICTION")
     print("-" * 40)
     print(f"  Home goals MAE: {np.mean(lambda_errors_h):.3f}")
@@ -178,6 +178,59 @@ def display_market_report(db: DatabaseClient, days: int = None,
     print("=" * 70)
 
 
+def display_market_pnl(db: DatabaseClient, days: int = None,
+                       start_date: str = None, end_date: str = None):
+    """Display PnL report for goals market bets (O/U 2.5, BTTS)."""
+    pnl = db.get_market_pnl_report(days=days, start_date=start_date, end_date=end_date)
+
+    ou = pnl['ou_2_5']
+    btts = pnl['btts']
+    total_bets = ou['bets'] + btts['bets']
+
+    if total_bets == 0:
+        print("\nNo goals market bets found.")
+        return
+
+    print()
+    print("=" * 70)
+    print("GOALS MARKET BETTING PnL")
+    print("=" * 70)
+    period = f"{start_date or ''} to {end_date or 'now'}" if start_date or end_date else f"Last {days} days"
+    print(f"Period: {period}")
+    print()
+
+    print(f"  {'Market':<12} {'Bets':>6} {'Wins':>6} {'WR':>8} {'Profit':>10} {'ROI':>8} {'Avg Edge':>10} {'Avg Odds':>10}")
+    print("  " + "-" * 72)
+
+    for label, stats in [('O/U 2.5', ou), ('BTTS', btts)]:
+        if stats['bets'] > 0:
+            print(f"  {label:<12} {stats['bets']:>6} {stats['wins']:>6} "
+                  f"{stats['win_rate']:>7.1%} ${stats['profit']:>9.2f} "
+                  f"{stats['roi']:>7.1f}% {stats['avg_edge']:>9.1%} "
+                  f"{stats['avg_odds']:>9.2f}")
+
+    total_profit = ou['profit'] + btts['profit']
+    total_roi = total_profit / total_bets * 100 if total_bets > 0 else 0
+    print("  " + "-" * 72)
+    print(f"  {'TOTAL':<12} {total_bets:>6} {ou['wins'] + btts['wins']:>6} "
+          f"{'':>8} ${total_profit:>9.2f} {total_roi:>7.1f}%")
+
+    # Monthly breakdown
+    monthly = pnl.get('monthly', [])
+    if monthly:
+        print()
+        print("  MONTHLY BREAKDOWN")
+        print(f"  {'Month':<10} {'O/U Bets':>10} {'O/U P&L':>10} {'BTTS Bets':>10} {'BTTS P&L':>10} {'Total P&L':>10}")
+        print("  " + "-" * 62)
+        for m in monthly:
+            total_m = m['ou_profit'] + m['btts_profit']
+            print(f"  {m['month']:<10} {m['ou_bets']:>10} ${m['ou_profit']:>9.2f} "
+                  f"{m['btts_bets']:>10} ${m['btts_profit']:>9.2f} ${total_m:>9.2f}")
+
+    print()
+    print("=" * 70)
+
+
 def main():
     parser = argparse.ArgumentParser(description='Market predictions accuracy report')
     parser.add_argument('--days', type=int, default=30, help='Last N days')
@@ -190,8 +243,10 @@ def main():
 
     if args.start_date:
         display_market_report(db, start_date=args.start_date, end_date=args.end_date)
+        display_market_pnl(db, start_date=args.start_date, end_date=args.end_date)
     else:
         display_market_report(db, days=args.days)
+        display_market_pnl(db, days=args.days)
 
 
 if __name__ == '__main__':

@@ -142,6 +142,29 @@ BETTING_STRATEGIES = {
     },
 }
 
+# ============================================================================
+# GOALS MARKET BETTING (O/U, BTTS)
+# ============================================================================
+# Value-based betting on goals markets using Poisson model probabilities.
+# Bet when: model_prob - implied_prob > min_edge, odds in range, prob > min_prob.
+
+GOALS_BETTING_STRATEGIES = {
+    'ou_2_5': {
+        'enabled': True,
+        'min_edge': 0.03,     # model_prob - implied_prob > 3%
+        'min_odds': 1.50,
+        'max_odds': 3.00,
+        'min_prob': 0.52,     # minimum model probability to consider betting
+    },
+    'btts': {
+        'enabled': True,
+        'min_edge': 0.03,
+        'min_odds': 1.50,
+        'max_odds': 3.00,
+        'min_prob': 0.52,
+    },
+}
+
 # Legacy (backward compat) — use BETTING_STRATEGIES instead
 BET_SELECTOR = {
     'model_path': 'models/production/bet_selector.joblib',

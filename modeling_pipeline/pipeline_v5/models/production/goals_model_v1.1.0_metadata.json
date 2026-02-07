@@ -1,0 +1,44 @@
+{
+  "version": "1.1.0",
+  "timestamp": "2026-02-07T12:46:56.209955",
+  "model_type": "PoissonGoalsModel (CatBoost+LightGBM Poisson regressors)",
+  "tuned": true,
+  "tuning_trials": 100,
+  "features": 162,
+  "train_size": 12560,
+  "test_size": 2692,
+  "test_metrics": {
+    "goal_metrics": {
+      "home_mae": 0.9561,
+      "away_mae": 0.8683,
+      "home_bias": 0.0204,
+      "away_bias": -0.0263,
+      "mean_pred_home": 1.538,
+      "mean_actual_home": 1.517,
+      "mean_pred_away": 1.268,
+      "mean_actual_away": 1.294
+    },
+    "market_metrics": {
+      "over_2_5_accuracy": 0.5583,
+      "btts_accuracy": 0.5286
+    }
+  },
+  "catboost_params": {
+    "iterations": 670,
+    "depth": 8,
+    "learning_rate": 0.0543149174492764,
+    "l2_leaf_reg": 5.228621770314849,
+    "min_data_in_leaf": 13,
+    "loss_function": "Poisson"
+  },
+  "lightgbm_params": {
+    "n_estimators": 418,
+    "max_depth": 4,
+    "learning_rate": 0.07099737200299269,
+    "reg_lambda": 7.039970197465519,
+    "reg_alpha": 2.776147778551352,
+    "num_leaves": 55,
+    "min_child_samples": 32,
+    "objective": "poisson"
+  }
+}

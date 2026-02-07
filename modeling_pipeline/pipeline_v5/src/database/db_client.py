@@ -186,6 +186,27 @@ class DatabaseClient:
                 );
             """)
 
+            # Migration: add betting columns to existing market_predictions table
+            cursor.execute("""
+                DO $$ BEGIN
+                    ALTER TABLE market_predictions ADD COLUMN IF NOT EXISTS ou_2_5_over_odds FLOAT;
+                    ALTER TABLE market_predictions ADD COLUMN IF NOT EXISTS ou_2_5_under_odds FLOAT;
+                    ALTER TABLE market_predictions ADD COLUMN IF NOT EXISTS btts_yes_odds FLOAT;
+                    ALTER TABLE market_predictions ADD COLUMN IF NOT EXISTS btts_no_odds FLOAT;
+                    ALTER TABLE market_predictions ADD COLUMN IF NOT EXISTS ou_2_5_bet VARCHAR(10);
+                    ALTER TABLE market_predictions ADD COLUMN IF NOT EXISTS ou_2_5_bet_odds FLOAT;
+                    ALTER TABLE market_predictions ADD COLUMN IF NOT EXISTS ou_2_5_edge FLOAT;
+                    ALTER TABLE market_predictions ADD COLUMN IF NOT EXISTS ou_2_5_bet_won BOOLEAN;
+                    ALTER TABLE market_predictions ADD COLUMN IF NOT EXISTS ou_2_5_profit FLOAT;
+                    ALTER TABLE market_predictions ADD COLUMN IF NOT EXISTS btts_bet VARCHAR(10);
+                    ALTER TABLE market_predictions ADD COLUMN IF NOT EXISTS btts_bet_odds FLOAT;
+                    ALTER TABLE market_predictions ADD COLUMN IF NOT EXISTS btts_edge FLOAT;
+                    ALTER TABLE market_predictions ADD COLUMN IF NOT EXISTS btts_bet_won BOOLEAN;
+                    ALTER TABLE market_predictions ADD COLUMN IF NOT EXISTS btts_profit FLOAT;
+                EXCEPTION WHEN others THEN NULL;
+                END $$;
+            """)
+
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_market_predictions_fixture_id ON market_predictions(fixture_id);
                 CREATE INDEX IF NOT EXISTS idx_market_predictions_match_date ON market_predictions(match_date);
@@ -700,6 +721,10 @@ class DatabaseClient:
                     p.get('handicap_minus_0_5_prob'), p.get('handicap_plus_0_5_prob'),
                     p.get('handicap_plus_1_5_prob'), p.get('handicap_plus_2_5_prob'),
                     json.dumps(p.get('top_scorelines', [])),
+                    p.get('ou_2_5_over_odds'), p.get('ou_2_5_under_odds'),
+                    p.get('btts_yes_odds'), p.get('btts_no_odds'),
+                    p.get('ou_2_5_bet'), p.get('ou_2_5_bet_odds'), p.get('ou_2_5_edge'),
+                    p.get('btts_bet'), p.get('btts_bet_odds'), p.get('btts_edge'),
                     p.get('model_version', 'goals_v1'),
                 )
                 for p in predictions
@@ -716,6 +741,10 @@ class DatabaseClient:
                     handicap_minus_0_5_prob, handicap_plus_0_5_prob,
                     handicap_plus_1_5_prob, handicap_plus_2_5_prob,
                     top_scorelines,
+                    ou_2_5_over_odds, ou_2_5_under_odds,
+                    btts_yes_odds, btts_no_odds,
+                    ou_2_5_bet, ou_2_5_bet_odds, ou_2_5_edge,
+                    btts_bet, btts_bet_odds, btts_edge,
                     model_version
                 ) VALUES %s
                 ON CONFLICT (fixture_id, model_version) DO UPDATE SET
@@ -733,6 +762,16 @@ class DatabaseClient:
                     handicap_plus_1_5_prob = EXCLUDED.handicap_plus_1_5_prob,
                     handicap_plus_2_5_prob = EXCLUDED.handicap_plus_2_5_prob,
                     top_scorelines = EXCLUDED.top_scorelines,
+                    ou_2_5_over_odds = EXCLUDED.ou_2_5_over_odds,
+                    ou_2_5_under_odds = EXCLUDED.ou_2_5_under_odds,
+                    btts_yes_odds = EXCLUDED.btts_yes_odds,
+                    btts_no_odds = EXCLUDED.btts_no_odds,
+                    ou_2_5_bet = EXCLUDED.ou_2_5_bet,
+                    ou_2_5_bet_odds = EXCLUDED.ou_2_5_bet_odds,
+                    ou_2_5_edge = EXCLUDED.ou_2_5_edge,
+                    btts_bet = EXCLUDED.btts_bet,
+                    btts_bet_odds = EXCLUDED.btts_bet_odds,
+                    btts_edge = EXCLUDED.btts_edge,
                     prediction_timestamp = NOW()
             """, values)
 
@@ -837,6 +876,177 @@ class DatabaseClient:
                     'accuracy': btts_correct / btts_total if btts_total > 0 else 0,
                     'total': btts_total,
                 },
+            }
+
+    def update_market_bet_results_batch(self, results: Dict[int, Dict]) -> int:
+        """Calculate bet_won and profit for market bets given actual scores.
+
+        Args:
+            results: Dict mapping fixture_id -> {home_score, away_score}
+
+        Returns:
+            Number of rows updated.
+        """
+        if not results:
+            return 0
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            fixture_ids = list(results.keys())
+            cursor.execute("""
+                SELECT fixture_id, ou_2_5_bet, ou_2_5_bet_odds, btts_bet, btts_bet_odds
+                FROM market_predictions
+                WHERE fixture_id = ANY(%s)
+                  AND actual_home_score IS NOT NULL
+                  AND (ou_2_5_bet IS NOT NULL OR btts_bet IS NOT NULL)
+                  AND (ou_2_5_bet_won IS NULL AND btts_bet_won IS NULL)
+            """, (fixture_ids,))
+
+            rows = cursor.fetchall()
+            if not rows:
+                return 0
+
+            updated = 0
+            for row in rows:
+                fid, ou_bet, ou_odds, btts_bet_val, btts_odds = row
+                if fid not in results:
+                    continue
+
+                hs = results[fid]['home_score']
+                aws = results[fid]['away_score']
+                actual_total = hs + aws
+                actual_btts = hs >= 1 and aws >= 1
+
+                # O/U 2.5 result
+                ou_won = None
+                ou_profit = None
+                if ou_bet and ou_odds:
+                    if ou_bet == 'over':
+                        ou_won = actual_total > 2.5
+                    elif ou_bet == 'under':
+                        ou_won = actual_total < 2.5
+                    ou_profit = float(ou_odds - 1) if ou_won else -1.0
+
+                # BTTS result
+                btts_won = None
+                btts_profit = None
+                if btts_bet_val and btts_odds:
+                    if btts_bet_val == 'yes':
+                        btts_won = actual_btts
+                    elif btts_bet_val == 'no':
+                        btts_won = not actual_btts
+                    btts_profit = float(btts_odds - 1) if btts_won else -1.0
+
+                cursor.execute("""
+                    UPDATE market_predictions
+                    SET ou_2_5_bet_won = %s, ou_2_5_profit = %s,
+                        btts_bet_won = %s, btts_profit = %s,
+                        updated_at = NOW()
+                    WHERE fixture_id = %s
+                """, (ou_won, ou_profit, btts_won, btts_profit, fid))
+                updated += 1
+
+            if updated > 0:
+                logger.info(f"Updated {updated} market bet results")
+            return updated
+
+    def get_market_pnl_report(self, days: int = None, start_date: str = None,
+                              end_date: str = None) -> Dict:
+        """Get PnL report for goals market bets (O/U 2.5, BTTS).
+
+        Returns dict with per-market stats: bets, wins, win_rate, profit, ROI.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            where = "actual_home_score IS NOT NULL"
+            params = []
+            if days:
+                where += " AND match_date >= NOW() - INTERVAL '%s days'"
+                params.append(days)
+            if start_date:
+                where += " AND match_date >= %s"
+                params.append(start_date)
+            if end_date:
+                where += " AND match_date <= %s"
+                params.append(end_date)
+
+            cursor.execute(f"""
+                SELECT
+                    -- O/U 2.5
+                    COUNT(CASE WHEN ou_2_5_bet IS NOT NULL THEN 1 END) as ou_bets,
+                    COUNT(CASE WHEN ou_2_5_bet_won = TRUE THEN 1 END) as ou_wins,
+                    COALESCE(SUM(CASE WHEN ou_2_5_bet IS NOT NULL THEN ou_2_5_profit ELSE 0 END), 0) as ou_profit,
+                    AVG(CASE WHEN ou_2_5_bet IS NOT NULL THEN ou_2_5_edge END) as ou_avg_edge,
+                    AVG(CASE WHEN ou_2_5_bet IS NOT NULL THEN ou_2_5_bet_odds END) as ou_avg_odds,
+                    -- BTTS
+                    COUNT(CASE WHEN btts_bet IS NOT NULL THEN 1 END) as btts_bets,
+                    COUNT(CASE WHEN btts_bet_won = TRUE THEN 1 END) as btts_wins,
+                    COALESCE(SUM(CASE WHEN btts_bet IS NOT NULL THEN btts_profit ELSE 0 END), 0) as btts_profit_total,
+                    AVG(CASE WHEN btts_bet IS NOT NULL THEN btts_edge END) as btts_avg_edge,
+                    AVG(CASE WHEN btts_bet IS NOT NULL THEN btts_bet_odds END) as btts_avg_odds
+                FROM market_predictions
+                WHERE {where}
+            """, tuple(params))
+
+            row = cursor.fetchone()
+
+            ou_bets = row[0] or 0
+            ou_wins = row[1] or 0
+            ou_profit = float(row[2] or 0)
+            ou_avg_edge = float(row[3]) if row[3] else 0
+            ou_avg_odds = float(row[4]) if row[4] else 0
+            btts_bets = row[5] or 0
+            btts_wins = row[6] or 0
+            btts_profit_total = float(row[7] or 0)
+            btts_avg_edge = float(row[8]) if row[8] else 0
+            btts_avg_odds = float(row[9]) if row[9] else 0
+
+            # Monthly breakdown
+            cursor.execute(f"""
+                SELECT
+                    DATE_TRUNC('month', match_date) as month,
+                    COUNT(CASE WHEN ou_2_5_bet IS NOT NULL THEN 1 END) as ou_bets,
+                    COALESCE(SUM(CASE WHEN ou_2_5_bet IS NOT NULL THEN ou_2_5_profit ELSE 0 END), 0) as ou_profit,
+                    COUNT(CASE WHEN btts_bet IS NOT NULL THEN 1 END) as btts_bets,
+                    COALESCE(SUM(CASE WHEN btts_bet IS NOT NULL THEN btts_profit ELSE 0 END), 0) as btts_profit
+                FROM market_predictions
+                WHERE {where}
+                GROUP BY month
+                ORDER BY month DESC
+                LIMIT 12
+            """, tuple(params))
+
+            monthly = [
+                {
+                    'month': r[0].strftime('%Y-%m') if r[0] else None,
+                    'ou_bets': r[1], 'ou_profit': float(r[2]),
+                    'btts_bets': r[3], 'btts_profit': float(r[4]),
+                }
+                for r in cursor.fetchall()
+            ]
+
+            return {
+                'ou_2_5': {
+                    'bets': ou_bets,
+                    'wins': ou_wins,
+                    'win_rate': ou_wins / ou_bets if ou_bets > 0 else 0,
+                    'profit': ou_profit,
+                    'roi': ou_profit / ou_bets * 100 if ou_bets > 0 else 0,
+                    'avg_edge': ou_avg_edge,
+                    'avg_odds': ou_avg_odds,
+                },
+                'btts': {
+                    'bets': btts_bets,
+                    'wins': btts_wins,
+                    'win_rate': btts_wins / btts_bets if btts_bets > 0 else 0,
+                    'profit': btts_profit_total,
+                    'roi': btts_profit_total / btts_bets * 100 if btts_bets > 0 else 0,
+                    'avg_edge': btts_avg_edge,
+                    'avg_odds': btts_avg_odds,
+                },
+                'monthly': monthly,
             }
 
     def get_pnl_report(self, start_date: str = None, end_date: str = None,
