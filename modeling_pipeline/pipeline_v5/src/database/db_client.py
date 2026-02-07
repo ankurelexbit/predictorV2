@@ -83,6 +83,7 @@ class DatabaseClient:
                     predicted_outcome VARCHAR(10) NOT NULL,
 
                     -- Betting decision
+                    strategy VARCHAR(50) DEFAULT 'threshold',
                     bet_outcome VARCHAR(20),
                     bet_probability FLOAT,
                     bet_odds FLOAT,
@@ -112,13 +113,82 @@ class DatabaseClient:
                     prediction_timestamp TIMESTAMP DEFAULT NOW(),
                     updated_at TIMESTAMP DEFAULT NOW()
                 );
+            """)
 
-                -- Create indexes for common queries
+            # Migration: add strategy column to existing tables (must run BEFORE strategy indexes)
+            cursor.execute("""
+                DO $$ BEGIN
+                    ALTER TABLE predictions ADD COLUMN IF NOT EXISTS strategy VARCHAR(50) DEFAULT 'threshold';
+                EXCEPTION WHEN others THEN NULL;
+                END $$;
+            """)
+
+            # Create indexes (safe to run now that strategy column exists)
+            cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_predictions_fixture_id ON predictions(fixture_id);
                 CREATE INDEX IF NOT EXISTS idx_predictions_match_date ON predictions(match_date);
                 CREATE INDEX IF NOT EXISTS idx_predictions_should_bet ON predictions(should_bet);
                 CREATE INDEX IF NOT EXISTS idx_predictions_league ON predictions(league_id, match_date);
                 CREATE INDEX IF NOT EXISTS idx_predictions_fixture_model ON predictions(fixture_id, model_version, prediction_timestamp DESC);
+                CREATE INDEX IF NOT EXISTS idx_predictions_strategy ON predictions(strategy);
+            """)
+
+            # Unique constraint: one prediction per fixture+strategy+model
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_predictions_fixture_strategy
+                    ON predictions(fixture_id, strategy, model_version);
+            """)
+
+            # Market predictions table (Poisson goals model)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS market_predictions (
+                    id SERIAL PRIMARY KEY,
+                    fixture_id INTEGER NOT NULL,
+                    match_date TIMESTAMP NOT NULL,
+                    league_id INTEGER,
+                    home_team_name VARCHAR(255),
+                    away_team_name VARCHAR(255),
+
+                    -- Poisson parameters
+                    home_goals_lambda FLOAT NOT NULL,
+                    away_goals_lambda FLOAT NOT NULL,
+
+                    -- Over/Under probabilities
+                    over_0_5_prob FLOAT,
+                    over_1_5_prob FLOAT,
+                    over_2_5_prob FLOAT,
+                    over_3_5_prob FLOAT,
+
+                    -- BTTS
+                    btts_prob FLOAT,
+
+                    -- Asian Handicap (home perspective)
+                    handicap_minus_2_5_prob FLOAT,
+                    handicap_minus_1_5_prob FLOAT,
+                    handicap_minus_0_5_prob FLOAT,
+                    handicap_plus_0_5_prob FLOAT,
+                    handicap_plus_1_5_prob FLOAT,
+                    handicap_plus_2_5_prob FLOAT,
+
+                    -- Most likely scorelines (top 5 as JSONB)
+                    top_scorelines JSONB,
+
+                    -- Actuals (filled after match)
+                    actual_home_score INTEGER,
+                    actual_away_score INTEGER,
+
+                    -- Metadata
+                    model_version VARCHAR(50) DEFAULT 'goals_v1',
+                    prediction_timestamp TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW(),
+
+                    UNIQUE(fixture_id, model_version)
+                );
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_market_predictions_fixture_id ON market_predictions(fixture_id);
+                CREATE INDEX IF NOT EXISTS idx_market_predictions_match_date ON market_predictions(match_date);
             """)
 
             logger.info("Database tables created successfully")
@@ -141,7 +211,7 @@ class DatabaseClient:
                     fixture_id, match_date, league_id, league_name, season_id,
                     home_team_id, home_team_name, away_team_id, away_team_name,
                     pred_home_prob, pred_draw_prob, pred_away_prob, predicted_outcome,
-                    bet_outcome, bet_probability, bet_odds, should_bet,
+                    strategy, bet_outcome, bet_probability, bet_odds, should_bet,
                     best_home_odds, best_draw_odds, best_away_odds,
                     avg_home_odds, avg_draw_odds, avg_away_odds, odds_count,
                     features,
@@ -150,12 +220,18 @@ class DatabaseClient:
                     %(fixture_id)s, %(match_date)s, %(league_id)s, %(league_name)s, %(season_id)s,
                     %(home_team_id)s, %(home_team_name)s, %(away_team_id)s, %(away_team_name)s,
                     %(pred_home_prob)s, %(pred_draw_prob)s, %(pred_away_prob)s, %(predicted_outcome)s,
-                    %(bet_outcome)s, %(bet_probability)s, %(bet_odds)s, %(should_bet)s,
+                    %(strategy)s, %(bet_outcome)s, %(bet_probability)s, %(bet_odds)s, %(should_bet)s,
                     %(best_home_odds)s, %(best_draw_odds)s, %(best_away_odds)s,
                     %(avg_home_odds)s, %(avg_draw_odds)s, %(avg_away_odds)s, %(odds_count)s,
                     %(features)s,
                     %(model_version)s
                 )
+                ON CONFLICT (fixture_id, strategy, model_version) DO UPDATE SET
+                    bet_outcome = EXCLUDED.bet_outcome,
+                    bet_probability = EXCLUDED.bet_probability,
+                    bet_odds = EXCLUDED.bet_odds,
+                    should_bet = EXCLUDED.should_bet,
+                    prediction_timestamp = NOW()
                 RETURNING id
             """, prediction)
 
@@ -199,6 +275,7 @@ class DatabaseClient:
                     p['away_team_id'], p['away_team_name'],
                     p['pred_home_prob'], p['pred_draw_prob'], p['pred_away_prob'],
                     p['predicted_outcome'],
+                    p.get('strategy', 'threshold'),
                     p.get('bet_outcome'), p.get('bet_probability'), p.get('bet_odds'),
                     p.get('should_bet', False),
                     p.get('best_home_odds'), p.get('best_draw_odds'), p.get('best_away_odds'),
@@ -215,12 +292,18 @@ class DatabaseClient:
                     fixture_id, match_date, league_id, league_name, season_id,
                     home_team_id, home_team_name, away_team_id, away_team_name,
                     pred_home_prob, pred_draw_prob, pred_away_prob, predicted_outcome,
-                    bet_outcome, bet_probability, bet_odds, should_bet,
+                    strategy, bet_outcome, bet_probability, bet_odds, should_bet,
                     best_home_odds, best_draw_odds, best_away_odds,
                     avg_home_odds, avg_draw_odds, avg_away_odds, odds_count,
                     features,
                     model_version
                 ) VALUES %s
+                ON CONFLICT (fixture_id, strategy, model_version) DO UPDATE SET
+                    bet_outcome = EXCLUDED.bet_outcome,
+                    bet_probability = EXCLUDED.bet_probability,
+                    bet_odds = EXCLUDED.bet_odds,
+                    should_bet = EXCLUDED.should_bet,
+                    prediction_timestamp = NOW()
             """, values)
 
             logger.info(f"Stored {len(predictions)} predictions in database")
@@ -248,9 +331,9 @@ class DatabaseClient:
             else:
                 actual_result = 'D'
 
-            # Get ALL predictions for this fixture
+            # Get ALL predictions for this fixture (may be multiple strategy rows)
             cursor.execute("""
-                SELECT model_version, bet_outcome, should_bet, best_home_odds, best_draw_odds, best_away_odds
+                SELECT model_version, strategy, bet_outcome, should_bet, best_home_odds, best_draw_odds, best_away_odds
                 FROM predictions
                 WHERE fixture_id = %s
             """, (fixture_id,))
@@ -260,9 +343,9 @@ class DatabaseClient:
                 logger.warning(f"No predictions found for fixture {fixture_id}")
                 return
 
-            # Update each prediction
+            # Update each prediction (each strategy row independently)
             for row in results:
-                model_ver, bet_outcome, should_bet, best_home_odds, best_draw_odds, best_away_odds = row
+                model_ver, strat, bet_outcome, should_bet, best_home_odds, best_draw_odds, best_away_odds = row
 
                 bet_won = None
                 bet_profit = None
@@ -296,9 +379,9 @@ class DatabaseClient:
                         bet_won = %s,
                         bet_profit = %s,
                         updated_at = NOW()
-                    WHERE fixture_id = %s AND model_version = %s
+                    WHERE fixture_id = %s AND model_version = %s AND strategy = %s
                 """, (home_score, away_score, actual_result, bet_won, bet_profit,
-                      fixture_id, model_ver))
+                      fixture_id, model_ver, strat))
 
             logger.info(f"Updated result for fixture {fixture_id}")
 
@@ -320,7 +403,7 @@ class DatabaseClient:
 
             fixture_ids = list(results.keys())
             cursor.execute("""
-                SELECT fixture_id, model_version, bet_outcome, should_bet,
+                SELECT fixture_id, model_version, strategy, bet_outcome, should_bet,
                        best_home_odds, best_draw_odds, best_away_odds
                 FROM predictions
                 WHERE fixture_id = ANY(%s)
@@ -332,7 +415,7 @@ class DatabaseClient:
 
             update_values = []
             for row in predictions:
-                fixture_id, model_ver, bet_outcome, should_bet, best_home_odds, best_draw_odds, best_away_odds = row
+                fixture_id, model_ver, strat, bet_outcome, should_bet, best_home_odds, best_draw_odds, best_away_odds = row
 
                 if fixture_id not in results:
                     continue
@@ -371,7 +454,7 @@ class DatabaseClient:
 
                 update_values.append((
                     home_score, away_score, actual_result, bet_won, bet_profit,
-                    fixture_id, model_ver
+                    fixture_id, model_ver, strat or 'threshold'
                 ))
 
             if update_values:
@@ -383,8 +466,8 @@ class DatabaseClient:
                         bet_won = v.bet_won::boolean,
                         bet_profit = v.bet_profit::double precision,
                         updated_at = NOW()
-                    FROM (VALUES %s) AS v(home_score, away_score, actual_result, bet_won, bet_profit, fixture_id, model_version)
-                    WHERE p.fixture_id = v.fixture_id::integer AND p.model_version = v.model_version
+                    FROM (VALUES %s) AS v(home_score, away_score, actual_result, bet_won, bet_profit, fixture_id, model_version, strategy)
+                    WHERE p.fixture_id = v.fixture_id::integer AND p.model_version = v.model_version AND p.strategy = v.strategy
                 """, update_values)
 
                 logger.info(f"Batch updated {len(update_values)} predictions")
@@ -411,12 +494,13 @@ class DatabaseClient:
             columns = [desc[0] for desc in cursor.description]
             return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-    def get_betting_performance(self, days: int = 30, model_version: str = 'v5') -> Dict:
+    def get_betting_performance(self, days: int = 30, model_version: str = 'v5',
+                               strategy: str = None) -> Dict:
         """Get betting performance metrics for the last N days."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
 
-            cursor.execute("""
+            query = """
                 SELECT
                     COUNT(*) as total_bets,
                     SUM(CASE WHEN bet_won THEN 1 ELSE 0 END) as wins,
@@ -427,7 +511,12 @@ class DatabaseClient:
                   AND actual_result IS NOT NULL
                   AND model_version = %s
                   AND match_date >= NOW() - INTERVAL '%s days'
-            """, (model_version, days))
+            """
+            params = [model_version, days]
+            if strategy:
+                query += " AND strategy = %s"
+                params.append(strategy)
+            cursor.execute(query, params)
 
             row = cursor.fetchone()
 
@@ -450,7 +539,7 @@ class DatabaseClient:
             }
 
     def get_detailed_pnl(self, start_date: str = None, end_date: str = None,
-                         model_version: str = 'v5') -> Dict:
+                         model_version: str = 'v5', strategy: str = None) -> Dict:
         """Get detailed PnL breakdown."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
@@ -464,6 +553,9 @@ class DatabaseClient:
             if end_date:
                 date_filter += " AND match_date <= %s"
                 params.append(end_date)
+            if strategy:
+                date_filter += " AND strategy = %s"
+                params.append(strategy)
 
             cursor.execute(f"""
                 SELECT
@@ -579,10 +671,178 @@ class DatabaseClient:
                 }
             }
 
+    def store_market_predictions_batch(self, predictions: List[Dict]) -> int:
+        """Store market predictions (Poisson goals model) in batch.
+
+        Args:
+            predictions: List of dicts with keys matching market_predictions columns.
+
+        Returns:
+            Number of predictions stored.
+        """
+        if not predictions:
+            return 0
+
+        import json
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            values = [
+                (
+                    p['fixture_id'], p['match_date'], p.get('league_id'),
+                    p.get('home_team_name'), p.get('away_team_name'),
+                    p['home_goals_lambda'], p['away_goals_lambda'],
+                    p.get('over_0_5_prob'), p.get('over_1_5_prob'),
+                    p.get('over_2_5_prob'), p.get('over_3_5_prob'),
+                    p.get('btts_prob'),
+                    p.get('handicap_minus_2_5_prob'), p.get('handicap_minus_1_5_prob'),
+                    p.get('handicap_minus_0_5_prob'), p.get('handicap_plus_0_5_prob'),
+                    p.get('handicap_plus_1_5_prob'), p.get('handicap_plus_2_5_prob'),
+                    json.dumps(p.get('top_scorelines', [])),
+                    p.get('model_version', 'goals_v1'),
+                )
+                for p in predictions
+            ]
+
+            execute_values(cursor, """
+                INSERT INTO market_predictions (
+                    fixture_id, match_date, league_id,
+                    home_team_name, away_team_name,
+                    home_goals_lambda, away_goals_lambda,
+                    over_0_5_prob, over_1_5_prob, over_2_5_prob, over_3_5_prob,
+                    btts_prob,
+                    handicap_minus_2_5_prob, handicap_minus_1_5_prob,
+                    handicap_minus_0_5_prob, handicap_plus_0_5_prob,
+                    handicap_plus_1_5_prob, handicap_plus_2_5_prob,
+                    top_scorelines,
+                    model_version
+                ) VALUES %s
+                ON CONFLICT (fixture_id, model_version) DO UPDATE SET
+                    home_goals_lambda = EXCLUDED.home_goals_lambda,
+                    away_goals_lambda = EXCLUDED.away_goals_lambda,
+                    over_0_5_prob = EXCLUDED.over_0_5_prob,
+                    over_1_5_prob = EXCLUDED.over_1_5_prob,
+                    over_2_5_prob = EXCLUDED.over_2_5_prob,
+                    over_3_5_prob = EXCLUDED.over_3_5_prob,
+                    btts_prob = EXCLUDED.btts_prob,
+                    handicap_minus_2_5_prob = EXCLUDED.handicap_minus_2_5_prob,
+                    handicap_minus_1_5_prob = EXCLUDED.handicap_minus_1_5_prob,
+                    handicap_minus_0_5_prob = EXCLUDED.handicap_minus_0_5_prob,
+                    handicap_plus_0_5_prob = EXCLUDED.handicap_plus_0_5_prob,
+                    handicap_plus_1_5_prob = EXCLUDED.handicap_plus_1_5_prob,
+                    handicap_plus_2_5_prob = EXCLUDED.handicap_plus_2_5_prob,
+                    top_scorelines = EXCLUDED.top_scorelines,
+                    prediction_timestamp = NOW()
+            """, values)
+
+            logger.info(f"Stored {len(predictions)} market predictions")
+            return len(predictions)
+
+    def update_market_actuals_batch(self, results: Dict[int, Dict]) -> int:
+        """Update market_predictions with actual scores.
+
+        Args:
+            results: Dict mapping fixture_id -> {home_score, away_score}
+
+        Returns:
+            Number of rows updated.
+        """
+        if not results:
+            return 0
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            values = [
+                (fixture_id, r['home_score'], r['away_score'])
+                for fixture_id, r in results.items()
+            ]
+
+            execute_values(cursor, """
+                UPDATE market_predictions AS mp
+                SET actual_home_score = v.home_score::integer,
+                    actual_away_score = v.away_score::integer,
+                    updated_at = NOW()
+                FROM (VALUES %s) AS v(fixture_id, home_score, away_score)
+                WHERE mp.fixture_id = v.fixture_id::integer
+                  AND mp.actual_home_score IS NULL
+            """, values)
+
+            updated = cursor.rowcount
+            if updated > 0:
+                logger.info(f"Updated {updated} market prediction actuals")
+            return updated
+
+    def get_market_accuracy(self, days: int = 30) -> Dict:
+        """Get accuracy report for market predictions.
+
+        Returns dict with accuracy for O/U 2.5, BTTS, and calibration buckets.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT
+                    fixture_id, home_goals_lambda, away_goals_lambda,
+                    over_0_5_prob, over_1_5_prob, over_2_5_prob, over_3_5_prob,
+                    btts_prob,
+                    actual_home_score, actual_away_score
+                FROM market_predictions
+                WHERE actual_home_score IS NOT NULL
+                  AND match_date >= NOW() - INTERVAL '%s days'
+            """, (days,))
+
+            rows = cursor.fetchall()
+
+            if not rows:
+                return {'total': 0, 'message': 'No market predictions with results found'}
+
+            # Calculate accuracy
+            ou_results = {0.5: {'correct': 0, 'total': 0}, 1.5: {'correct': 0, 'total': 0},
+                          2.5: {'correct': 0, 'total': 0}, 3.5: {'correct': 0, 'total': 0}}
+            btts_correct = 0
+            btts_total = 0
+
+            for row in rows:
+                (fid, lh, la, o05, o15, o25, o35, btts,
+                 actual_h, actual_a) = row
+
+                actual_total = actual_h + actual_a
+                actual_btts = actual_h >= 1 and actual_a >= 1
+
+                for line, prob in [(0.5, o05), (1.5, o15), (2.5, o25), (3.5, o35)]:
+                    if prob is not None:
+                        pred_over = prob > 0.5
+                        actual_over = actual_total > line
+                        ou_results[line]['total'] += 1
+                        if pred_over == actual_over:
+                            ou_results[line]['correct'] += 1
+
+                if btts is not None:
+                    btts_total += 1
+                    if (btts > 0.5) == actual_btts:
+                        btts_correct += 1
+
+            return {
+                'total': len(rows),
+                'over_under': {
+                    f'over_{str(line).replace(".", "_")}': {
+                        'accuracy': r['correct'] / r['total'] if r['total'] > 0 else 0,
+                        'total': r['total'],
+                    }
+                    for line, r in ou_results.items()
+                },
+                'btts': {
+                    'accuracy': btts_correct / btts_total if btts_total > 0 else 0,
+                    'total': btts_total,
+                },
+            }
+
     def get_pnl_report(self, start_date: str = None, end_date: str = None,
-                       model_version: str = 'v5') -> str:
+                       model_version: str = 'v5', strategy: str = None) -> str:
         """Generate a formatted PnL report string."""
-        pnl = self.get_detailed_pnl(start_date, end_date, model_version)
+        pnl = self.get_detailed_pnl(start_date, end_date, model_version, strategy=strategy)
         summary = pnl['summary']
         by_outcome = pnl['by_outcome']
 

@@ -54,19 +54,33 @@ python3 scripts/train_model.py --data data/training_data.csv --version 1.0.0
 python3 scripts/train_model.py --data data/training_data.csv --tune --trials 50
 ```
 
-### 6. Generate Live Predictions
+### 6. Train Bet Selector (One-Time, After Step 5)
+
+```bash
+# Extract market features from historical JSON
+python3 scripts/extract_market_features.py
+
+# Train GBM bet selector with walk-forward backtest
+python3 scripts/train_bet_selector.py
+python3 scripts/train_bet_selector.py --dry-run  # backtest only
+```
+
+### 7. Generate Live Predictions (3 Strategies Per Fixture)
 
 ```bash
 python3 scripts/predict_live.py --days-ahead 7
-python3 scripts/predict_live.py --days-ahead 7 --strategy conservative
 python3 scripts/predict_live.py --days-ahead 7 --dry-run
+
+# Backtest mode
+python3 scripts/predict_live.py --start-date 2026-01-01 --end-date 2026-01-31
 ```
 
-### 7. Update Results & Get PnL
+### 8. Update Results & Get PnL
 
 ```bash
 python3 scripts/update_results.py --days-back 3
-python3 scripts/get_pnl.py --days 30
+python3 scripts/get_pnl.py --days 30                 # all strategies combined
+python3 scripts/get_pnl.py --days 30 --strategy hybrid  # specific strategy
 ```
 
 ### 8. Recalibrate Strategy (Every 8 Weeks)
@@ -79,30 +93,58 @@ python3 scripts/recalibrate_strategy.py --lookback-days 90  # custom window
 
 ## Betting Strategy
 
+### Multi-Strategy System
+
+Each fixture produces up to 3 independent bet decisions. Users can choose which strategy to follow.
+Validated on 13,580 fixtures (2017-2025) with 6 walk-forward folds.
+
+| Strategy | Description | Bets | ROI% | Losing Folds |
+|----------|-------------|------|------|--------------|
+| **threshold** | Probability thresholds (H60/D35/A45) + odds filter (1.5-3.5) | 3,890 | +4.1% | 2/6 |
+| **hybrid** | Thresholds (no odds filter) + GBM selector at 0.55 confidence | 2,261 | +8.7% | 0/6 |
+| **selector** | Pure GBM bet selector at 0.55 confidence | 3,463 | +7.7% | 0/6 |
+
 ### How It Works
 
-The model outputs probabilities for all 3 outcomes: P(Home), P(Draw), P(Away). A bet is placed when:
+The model outputs probabilities for all 3 outcomes: P(Home), P(Draw), P(Away).
 
-1. The predicted outcome's probability exceeds its threshold
-2. The best available odds fall within the odds filter range (1.5-3.5)
+- **threshold**: Bet when probability exceeds threshold AND odds are in 1.5-3.5 range
+- **hybrid**: Bet when probability exceeds threshold AND GBM selector confirms (no odds filter — GBM handles it)
+- **selector**: Bet when GBM selector says yes, on highest-probability outcome
 
-### Default Thresholds (3-Year Validated)
+### Configuration
+
+All strategies are configured in `config/production_config.py` → `BETTING_STRATEGIES`:
 
 ```python
-THRESHOLDS = {'home': 0.60, 'away': 0.45, 'draw': 0.35}
-ODDS_FILTER = {'min': 1.5, 'max': 3.5}
+BETTING_STRATEGIES = {
+    'threshold': {
+        'enabled': True,
+        'thresholds': {'home': 0.60, 'draw': 0.35, 'away': 0.45},
+        'odds_filter': {'min': 1.5, 'max': 3.5, 'enabled': True},
+    },
+    'hybrid': {
+        'enabled': True,
+        'thresholds': {'home': 0.60, 'draw': 0.35, 'away': 0.45},
+        'odds_filter': {'enabled': False},
+        'selector': {'model_path': 'models/production/bet_selector.joblib', 'min_confidence': 0.55},
+    },
+    'selector': {
+        'enabled': True,
+        'selector': {'model_path': 'models/production/bet_selector.joblib', 'min_confidence': 0.55},
+    },
+}
 ```
 
-Validated on 5,322 predictions across 2023-2025.
+Set `'enabled': False` on any strategy to disable it.
 
-### Strategy Profiles
+### GBM Bet Selector
 
-| Strategy | H / A / D Thresholds | Odds | Bets/mo | WR% | ROI% |
-|----------|---------------------|------|---------|-----|------|
-| Conservative (default) | 0.60 / 0.45 / 0.35 | 1.5-3.5 | ~50 | 46% | +6.7% |
-| Selective | 0.55 / 0.55 / 0.40 | 1.5-3.5 | ~30 | 52% | +5.8% |
-| High Volume | 0.45 / 0.45 / 0.35 | 1.3-3.5 | ~65 | 49% | +3.6% |
-| Tight | 0.60 / 0.55 / 0.40 | 1.5-3.5 | ~25 | 52% | +5.8% |
+A LightGBM classifier (max_depth=3, 150 trees) trained on 28 market features:
+- Consensus odds, implied probabilities, market overround
+- Sharp vs soft bookmaker spread (sharp: {2, 5, 34}, soft: {1, 3, 16, 20, 23, 29, 35})
+- Model-vs-market edge, cross-market signals
+- Profit-weighted training (winning bets weighted by payout)
 
 ### Recalibration Strategy
 
@@ -165,17 +207,22 @@ pipeline_v5/
 │   │   ├── pillar3_hidden_edges.py     # ~26 hidden edge features
 │   │   ├── player_features.py          # Player/lineup quality features
 │   │   └── feature_orchestrator.py     # Coordinates all pillars
+│   ├── market/
+│   │   ├── market_feature_extractor.py  # 28 market features from odds
+│   │   └── bet_selector.py              # GBM bet selector model
 │   └── database/
-│       └── db_client.py        # PostgreSQL client
+│       └── db_client.py        # PostgreSQL client (multi-strategy)
 ├── scripts/
 │   ├── backfill_historical_data.py # Download data from SportMonks API
 │   ├── build_fixtures_csv.py       # Convert JSON to lightweight CSV
 │   ├── generate_training_data.py   # Feature generation (162 features)
 │   ├── train_model.py              # Model training
-│   ├── predict_live.py             # Live predictions
-│   ├── update_results.py           # Update actual results
-│   ├── get_pnl.py                  # PnL reports
-│   └── recalibrate_strategy.py     # Threshold recalibration (every 8 weeks)
+│   ├── extract_market_features.py   # Extract market features from historical JSON
+│   ├── train_bet_selector.py        # Train GBM bet selector
+│   ├── predict_live.py              # Live predictions (3 strategies per fixture)
+│   ├── update_results.py            # Update actual results
+│   ├── get_pnl.py                   # PnL reports (per-strategy filtering)
+│   └── recalibrate_strategy.py      # Threshold recalibration (every 8 weeks)
 ├── models/
 │   └── production/             # Trained models (.joblib)
 ├── data/
@@ -236,23 +283,69 @@ CatBoost Classifier (500 iter, depth=6, lr=0.03, balanced weights)
 
 Chronological split: 70% train, 15% val, 15% test.
 
-## Weekly Operations Playbook
+## Operations Playbook
+
+### Weekly
 
 ```bash
-# 1. Generate predictions for upcoming week
+# 1. Generate predictions for upcoming week (all 3 strategies)
 python3 scripts/predict_live.py --days-ahead 7
 
-# 2. After matches finish, update results
+# 2. After matches finish, update results (all strategies updated automatically)
 python3 scripts/update_results.py --days-back 7
 
 # 3. Check PnL
-python3 scripts/get_pnl.py --days 30
+python3 scripts/get_pnl.py --days 30                 # all strategies + comparison
+python3 scripts/get_pnl.py --days 30 --strategy hybrid  # single strategy
+```
 
-# 4. Every 8 weeks: recalibrate thresholds
+### Every 8 Weeks: Recalibrate Thresholds
+
+Lightweight — just shifts probability cutoffs based on recent results.
+
+```bash
 python3 scripts/recalibrate_strategy.py
 ```
 
+### Every 3-6 Months: Retrain Main Model
+
+Retrain at season boundaries when you have 1,000+ new fixtures. Monthly is overkill
+(~200 fixtures = ~1% of training set, won't meaningfully shift weights). Features like
+Elo, form, and standings already adapt in real-time.
+
+| When | Why |
+|------|-----|
+| Aug/Sep (season start) | New promoted teams, summer transfers |
+| Jan/Feb (mid-season) | Winter transfer window, half-season of new data |
+| May/Jun (optional) | Full season complete, largest new data increment |
+
+```bash
+# 1. Backfill new data
+python3 scripts/backfill_historical_data.py --start-date 2026-01-01 --end-date 2026-06-30
+python3 scripts/build_fixtures_csv.py
+
+# 2. Regenerate training data and retrain
+python3 scripts/generate_training_data.py --output data/training_data.csv
+python3 scripts/train_model.py --data data/training_data.csv --version 1.1.0
+
+# 3. Retrain bet selector (depends on main model's CV probs)
+python3 scripts/extract_market_features.py
+python3 scripts/train_bet_selector.py --strategy gbm_0.55
+```
+
+Retrain sooner if PnL degrades noticeably or you add new features.
+
+### When NOT to Retrain
+
+- Don't retrain the main model monthly (too little new data for meaningful improvement)
+- Don't retrain the bet selector on its own without retraining the main model first
+  (selector features include model probabilities — they must stay aligned)
+- Don't retrain the bet selector every 8 weeks alongside threshold recalibration
+  (different cadence — selector needs more data to justify a retrain)
+
 ## Database Schema
+
+Each fixture has up to 3 rows (one per strategy). Unique constraint on `(fixture_id, strategy, model_version)`.
 
 ```sql
 CREATE TABLE predictions (
@@ -268,6 +361,7 @@ CREATE TABLE predictions (
     pred_draw_prob FLOAT NOT NULL,
     pred_away_prob FLOAT NOT NULL,
     predicted_outcome VARCHAR(10),
+    strategy VARCHAR(50) DEFAULT 'threshold',  -- threshold, hybrid, selector
     bet_outcome VARCHAR(20),
     bet_probability FLOAT,
     bet_odds FLOAT,
@@ -283,6 +377,7 @@ CREATE TABLE predictions (
     model_version VARCHAR(50),
     prediction_timestamp TIMESTAMP DEFAULT NOW()
 );
+-- UNIQUE INDEX on (fixture_id, strategy, model_version)
 ```
 
 ## Troubleshooting

@@ -47,6 +47,22 @@ def get_latest_model_path() -> str:
 
     raise FileNotFoundError("No production model found")
 
+
+def get_latest_goals_model_path() -> str:
+    """Get path to latest goals (Poisson) model."""
+    latest_file = MODEL_DIR / "LATEST_GOALS"
+    if latest_file.exists():
+        model_name = latest_file.read_text().strip()
+        return str(MODEL_DIR / model_name)
+
+    # Fallback: find highest version
+    models = list(MODEL_DIR.glob("goals_model_v*.joblib"))
+    if models:
+        return str(sorted(models)[-1])
+
+    return None  # Goals model is optional
+
+
 # ============================================================================
 # BETTING STRATEGY CONFIGURATION
 # ============================================================================
@@ -94,14 +110,42 @@ STRATEGY_PROFILES = {
 ACTIVE_STRATEGY = 'conservative'
 
 # ============================================================================
-# BET SELECTOR (ML-based, bypasses thresholds)
+# MULTI-STRATEGY BETTING (3 strategies per fixture)
 # ============================================================================
+# Each fixture produces up to 3 independent bet decisions.
+# Validated on 13,580 fixtures (2017-2025) with 6 walk-forward folds.
 
+BETTING_STRATEGIES = {
+    'threshold': {
+        'enabled': True,
+        'description': 'Probability thresholds + odds filter (4.1% ROI, 3890 bets)',
+        'thresholds': {'home': 0.60, 'draw': 0.40, 'away': 0.55},
+        'odds_filter': {'min': 1.3, 'max': 3.5, 'enabled': True},
+    },
+    'hybrid': {
+        'enabled': True,
+        'description': 'Thresholds (no odds filter) + GBM selector (8.7% ROI, 0 losing folds)',
+        'thresholds': {'home': 0.60, 'draw': 0.35, 'away': 0.45},
+        'odds_filter': {'enabled': False},
+        'selector': {
+            'model_path': 'models/production/bet_selector.joblib',
+            'min_confidence': 0.55,
+        },
+    },
+    'selector': {
+        'enabled': True,
+        'description': 'Pure GBM selector (7.7% ROI, 3463 bets, 0 losing folds)',
+        'selector': {
+            'model_path': 'models/production/bet_selector.joblib',
+            'min_confidence': 0.55,
+        },
+    },
+}
+
+# Legacy (backward compat) — use BETTING_STRATEGIES instead
 BET_SELECTOR = {
-    'enabled': False,  # Enable with --use-selector flag in predict_live.py
     'model_path': 'models/production/bet_selector.joblib',
-    'model_type': 'gbm',  # GBM selector: 7.7% ROI, 0 losing folds (vs threshold 4.1%)
-    'min_confidence': 0.55,  # GBM confidence threshold (validated on 6 walk-forward folds)
+    'min_confidence': 0.55,
 }
 
 # ============================================================================

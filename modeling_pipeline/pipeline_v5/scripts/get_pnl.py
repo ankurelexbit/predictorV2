@@ -6,14 +6,19 @@ Get PnL (Profit and Loss) Report
 Shows detailed betting performance from PostgreSQL database.
 
 Usage:
-    # All-time PnL
+    # All-time PnL (all strategies combined)
     python3 scripts/get_pnl.py
 
-    # PnL for specific period
-    python3 scripts/get_pnl.py --start-date 2026-01-01 --end-date 2026-01-31
+    # PnL for specific strategy
+    python3 scripts/get_pnl.py --strategy hybrid
+    python3 scripts/get_pnl.py --strategy threshold
+    python3 scripts/get_pnl.py --strategy selector
 
     # Last 30 days
     python3 scripts/get_pnl.py --days 30
+
+    # Last 30 days for a specific strategy
+    python3 scripts/get_pnl.py --days 30 --strategy hybrid
 
     # Specific model version
     python3 scripts/get_pnl.py --model-version v5
@@ -45,7 +50,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def display_pnl_report(pnl_data: dict, model_version: str):
+def display_pnl_report(pnl_data: dict, model_version: str, strategy: str = None):
     """Display formatted PnL report."""
     summary = pnl_data['summary']
     by_outcome = pnl_data['by_outcome']
@@ -67,6 +72,10 @@ def display_pnl_report(pnl_data: dict, model_version: str):
         print("Period: All-time")
 
     print(f"Model: {model_version}")
+    if strategy:
+        print(f"Strategy: {strategy}")
+    else:
+        print("Strategy: ALL (combined)")
 
     print("\n" + "-" * 70)
     print("OVERALL SUMMARY")
@@ -138,6 +147,36 @@ def display_pnl_report(pnl_data: dict, model_version: str):
     print("\n" + "=" * 70)
 
 
+def display_strategy_comparison(db: DatabaseClient, start_date: str, end_date: str,
+                                model_version: str):
+    """Show side-by-side comparison of all strategies."""
+    strategies = ['threshold', 'hybrid', 'selector']
+
+    print("\n" + "=" * 70)
+    print("PER-STRATEGY COMPARISON")
+    print("=" * 70)
+    print(f"{'Strategy':<12} {'Bets':<8} {'Wins':<8} {'WR':<10} {'Profit':<12} {'ROI':<10}")
+    print("-" * 60)
+
+    for strat in strategies:
+        perf = db.get_betting_performance(
+            days=9999, model_version=model_version, strategy=strat
+        )
+        # Re-query with date filter for accuracy
+        pnl = db.get_detailed_pnl(
+            start_date=start_date, end_date=end_date,
+            model_version=model_version, strategy=strat
+        )
+        s = pnl['summary']
+        if s['total_bets'] > 0:
+            print(f"{strat:<12} {s['total_bets']:<8} {s['wins']:<8} "
+                  f"{s['win_rate']:.1%}     ${s['total_profit']:<10.2f} {s['roi']:.1f}%")
+        else:
+            print(f"{strat:<12} {'0':<8} {'-':<8} {'-':<10} {'-':<12} {'-':<10}")
+
+    print("=" * 70)
+
+
 def main():
     parser = argparse.ArgumentParser(description='Get betting PnL report')
 
@@ -146,6 +185,7 @@ def main():
     date_group.add_argument('--start-date', help='Start date (YYYY-MM-DD)')
 
     parser.add_argument('--end-date', help='End date (YYYY-MM-DD)')
+    parser.add_argument('--strategy', help='Filter by strategy (threshold, hybrid, selector)')
     parser.add_argument('--model-version', default='v5', help='Model version')
     parser.add_argument('--raw', action='store_true', help='Show raw data (JSON format)')
 
@@ -169,14 +209,19 @@ def main():
     pnl_data = db.get_detailed_pnl(
         start_date=start_date,
         end_date=end_date,
-        model_version=args.model_version
+        model_version=args.model_version,
+        strategy=args.strategy
     )
 
     if args.raw:
         import json
         print(json.dumps(pnl_data, indent=2, default=str))
     else:
-        display_pnl_report(pnl_data, args.model_version)
+        display_pnl_report(pnl_data, args.model_version, strategy=args.strategy)
+
+        # If no specific strategy requested, show per-strategy comparison
+        if not args.strategy:
+            display_strategy_comparison(db, start_date, end_date, args.model_version)
 
 
 if __name__ == '__main__':

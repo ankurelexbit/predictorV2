@@ -195,6 +195,14 @@ class ResultUpdater:
             logger.error(f"Error updating results: {e}")
             updated_count = 0
 
+        # Update market predictions table (if it exists)
+        try:
+            market_updated = self.db.update_market_actuals_batch(results)
+            if market_updated > 0:
+                logger.info(f"Updated {market_updated} market prediction actuals")
+        except Exception as e:
+            logger.debug(f"Market actuals update skipped: {e}")
+
         # Summary
         logger.info("\n" + "=" * 60)
         logger.info("UPDATE SUMMARY")

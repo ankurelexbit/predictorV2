@@ -1,28 +1,27 @@
 #!/usr/bin/env python3
 """
-Live Prediction Script for V5 Pipeline
-=======================================
+Live Prediction Script for V5 Pipeline (Multi-Strategy)
+========================================================
 
-Generates predictions for upcoming fixtures and saves to PostgreSQL.
+Generates predictions for upcoming fixtures using 3 independent strategies
+and saves all to PostgreSQL. Each fixture gets up to 3 bet decisions.
 
-Features:
-- Loads historical data for context (Elo, form, standings)
-- Uses CatBoost+LightGBM ensemble
-- Applies V5 thresholds (H=0.45, A=0.45, D=0.35)
-- Filters by odds range (1.3-3.0)
-- Saves predictions to PostgreSQL
+Strategies (configured in config/production_config.py → BETTING_STRATEGIES):
+  - threshold:  Probability thresholds + odds filter (baseline)
+  - hybrid:     Thresholds (no odds filter) + GBM bet selector
+  - selector:   Pure GBM bet selector
 
 Usage:
     export SPORTMONKS_API_KEY="your_key"
 
-    # Predict upcoming fixtures
+    # Predict upcoming fixtures (all 3 strategies)
     python3 scripts/predict_live.py --days-ahead 7
-
-    # Predict with specific strategy profile
-    python3 scripts/predict_live.py --days-ahead 7 --strategy conservative
 
     # Dry run (don't save to DB)
     python3 scripts/predict_live.py --days-ahead 7 --dry-run
+
+    # Backtest mode
+    python3 scripts/predict_live.py --start-date 2026-01-01 --end-date 2026-01-31
 """
 
 import sys
@@ -41,10 +40,11 @@ import requests
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config.production_config import (
-    DATABASE_URL, THRESHOLDS, ODDS_FILTER, TOP_5_LEAGUES,
-    FILTER_TOP_5_ONLY, STRATEGY_PROFILES, get_active_strategy,
-    EloConfig, get_latest_model_path, BET_SELECTOR
+    DATABASE_URL, TOP_5_LEAGUES,
+    FILTER_TOP_5_ONLY, BETTING_STRATEGIES,
+    EloConfig, get_latest_model_path, get_latest_goals_model_path,
 )
+from src.goals import PoissonGoalsModel
 from src.database import DatabaseClient
 from src.features import (
     EloCalculator,
@@ -322,27 +322,23 @@ def extract_odds(fixture: dict) -> dict:
 
 
 class LivePipeline:
-    """Live prediction pipeline."""
+    """Live prediction pipeline with multi-strategy support."""
 
-    def __init__(self, api_key: str, history_days: int = 365, strategy: str = None, reference_date: datetime = None, use_selector: bool = False):
+    def __init__(self, api_key: str, history_days: int = 365, reference_date: datetime = None):
         self.api_key = api_key
         self.client = SportMonksClient(api_key)
         self.reference_date = reference_date or datetime.now()
         self.is_backtest = reference_date is not None
-        self.use_selector = use_selector
 
-        # Load strategy config
-        self.strategy_config = STRATEGY_PROFILES.get(strategy) if strategy else get_active_strategy()
-        self.thresholds = self.strategy_config['thresholds']
-        self.odds_filter = self.strategy_config['odds_filter']
+        # Load multi-strategy config
+        self.strategies = {k: v for k, v in BETTING_STRATEGIES.items() if v.get('enabled', True)}
 
         logger.info("=" * 60)
         logger.info("INITIALIZING V5 LIVE PIPELINE")
         logger.info("=" * 60)
-        logger.info(f"Strategy: {strategy or 'default'}")
-        logger.info(f"Thresholds: H={self.thresholds['home']}, A={self.thresholds['away']}, D={self.thresholds['draw']}")
-        if self.use_selector:
-            logger.info("Bet Selector: ENABLED (bypasses thresholds)")
+        logger.info(f"Active strategies: {list(self.strategies.keys())}")
+        for name, cfg in self.strategies.items():
+            logger.info(f"  {name}: {cfg.get('description', '')}")
         if self.is_backtest:
             logger.info(f"Reference date: {reference_date.strftime('%Y-%m-%d')} (backdated mode)")
 
@@ -376,21 +372,37 @@ class LivePipeline:
         self.model_data = joblib.load(model_path)
         logger.info(f"Loaded model from {model_path}")
 
-        # Load bet selector if enabled
-        self.selector = None
+        # Load goals model (optional — for advanced market predictions)
+        self.goals_model = None
+        goals_path = get_latest_goals_model_path()
+        if goals_path and Path(goals_path).exists():
+            self.goals_model = PoissonGoalsModel()
+            self.goals_model.load(goals_path)
+            logger.info(f"Loaded goals model from {goals_path}")
+        else:
+            logger.info("Goals model not found — market predictions will be skipped")
+
+        # Load bet selector (needed by hybrid + selector strategies)
+        self.selectors = {}  # strategy_name -> BetSelector
         self.market_extractor = None
-        if self.use_selector:
+        needs_selector = any('selector' in cfg for cfg in self.strategies.values())
+
+        if needs_selector:
             from src.market import MarketFeatureExtractor, BetSelector
-            selector_path = BET_SELECTOR.get('model_path', 'models/production/bet_selector.joblib')
-            selector_full_path = Path(__file__).parent.parent / selector_path
-            if selector_full_path.exists():
-                self.selector = BetSelector(min_confidence=BET_SELECTOR.get('min_confidence', 0.5))
-                self.selector.load(str(selector_full_path))
-                self.market_extractor = MarketFeatureExtractor()
-                logger.info(f"Loaded bet selector from {selector_full_path}")
-            else:
-                logger.warning(f"Bet selector not found at {selector_full_path}, falling back to thresholds")
-                self.use_selector = False
+            self.market_extractor = MarketFeatureExtractor()
+
+            for strat_name, cfg in self.strategies.items():
+                sel_cfg = cfg.get('selector')
+                if not sel_cfg:
+                    continue
+                sel_path = Path(__file__).parent.parent / sel_cfg['model_path']
+                if sel_path.exists():
+                    selector = BetSelector(min_confidence=sel_cfg.get('min_confidence', 0.55))
+                    selector.load(str(sel_path))
+                    self.selectors[strat_name] = selector
+                    logger.info(f"Loaded bet selector for '{strat_name}' (conf={selector.min_confidence})")
+                else:
+                    logger.warning(f"Bet selector not found at {sel_path} for '{strat_name}'")
 
         logger.info("\n" + "=" * 60)
         logger.info("PIPELINE READY")
@@ -467,11 +479,16 @@ class LivePipeline:
 
         return features
 
-    def predict(self, fixture: dict) -> dict:
-        """Generate prediction for a fixture."""
+    def predict(self, fixture: dict) -> tuple:
+        """Generate predictions for a fixture (one per enabled strategy).
+
+        Returns:
+            (predictions_list, market_pred_or_none) — list of 1X2 prediction dicts
+            and optional market prediction dict.
+        """
         features = self.generate_features(fixture)
         if features is None:
-            return None
+            return [], None
 
         # Get model components
         catboost = self.model_data['catboost']
@@ -480,80 +497,38 @@ class LivePipeline:
 
         # Prepare feature vector
         X = pd.DataFrame([features])
-
-        # Ensure all columns exist (fill missing with 0)
         for col in feature_cols:
             if col not in X.columns:
                 X[col] = 0
-
         X = X[feature_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
 
-        # Get ensemble probabilities
+        # Get ensemble probabilities (computed ONCE, shared by all strategies)
         probs_cat = catboost.predict_proba(X)[0]
         probs_lgb = lightgbm.predict_proba(X)[0]
         probs = (probs_cat + probs_lgb) / 2  # [Away, Draw, Home]
-
         p_away, p_draw, p_home = probs
 
-        # Determine predicted outcome and whether to bet
         predicted_outcome = 'Home Win' if p_home >= p_away and p_home >= p_draw else (
             'Away Win' if p_away >= p_draw else 'Draw')
 
-        # Get odds
+        # Extract odds (computed ONCE)
         odds = extract_odds(fixture)
 
-        # Apply betting logic
-        bet_outcome = None
-        bet_probability = None
-        bet_odds = None
-        should_bet = False
-
-        if self.use_selector and self.selector and self.market_extractor:
-            # Selector mode: use ML model with market features
-            market_feats = self.market_extractor.extract_from_api(fixture.get('odds', []))
-            if market_feats is not None:
-                model_probs = {'home': p_home, 'draw': p_draw, 'away': p_away}
-                full_feats = self.market_extractor.build_full_features(market_feats, model_probs)
-                should_bet = self.selector.predict(full_feats)
-
-                if should_bet:
-                    # Determine which outcome to bet on (highest model prob)
-                    prob_map = {'Home Win': (p_home, odds.get('best_home_odds')),
-                                'Away Win': (p_away, odds.get('best_away_odds')),
-                                'Draw': (p_draw, odds.get('best_draw_odds'))}
-                    best_outcome = max(prob_map, key=lambda k: prob_map[k][0])
-                    bet_outcome = best_outcome
-                    bet_probability, bet_odds = prob_map[best_outcome]
-        else:
-            # Threshold mode: existing logic
-            candidates = []
-            if p_home >= self.thresholds['home']:
-                candidates.append(('Home Win', p_home, odds.get('best_home_odds')))
-            if p_away >= self.thresholds['away']:
-                candidates.append(('Away Win', p_away, odds.get('best_away_odds')))
-            if p_draw >= self.thresholds['draw']:
-                candidates.append(('Draw', p_draw, odds.get('best_draw_odds')))
-
-            # Filter by odds range (skip if odds not available, e.g. backtest mode)
-            has_odds = any(odd is not None for _, _, odd in candidates)
-            if has_odds and self.odds_filter.get('enabled', True):
-                min_odds = self.odds_filter.get('min', 1.3)
-                max_odds = self.odds_filter.get('max', 3.0)
-                candidates = [(o, p, odd) for o, p, odd in candidates
-                             if odd and min_odds <= odd <= max_odds]
-
-            if candidates:
-                # Pick highest probability
-                best = max(candidates, key=lambda x: x[1])
-                bet_outcome, bet_probability, bet_odds = best
-                should_bet = True
+        # Extract market features ONCE (shared by hybrid + selector strategies)
+        market_full_feats = None
+        if self.market_extractor:
+            raw_market = self.market_extractor.extract_from_api(fixture.get('odds', []))
+            if raw_market is not None:
+                model_probs = {'home': float(p_home), 'draw': float(p_draw), 'away': float(p_away)}
+                market_full_feats = self.market_extractor.build_full_features(raw_market, model_probs)
 
         # Extract team info
         participants = fixture.get('participants', [])
         home_team = next((p for p in participants if p.get('meta', {}).get('location') == 'home'), {})
         away_team = next((p for p in participants if p.get('meta', {}).get('location') == 'away'), {})
 
-        return {
+        # Base prediction dict (shared fields)
+        base = {
             'fixture_id': fixture.get('id'),
             'match_date': fixture.get('starting_at'),
             'league_id': fixture.get('league_id'),
@@ -566,104 +541,223 @@ class LivePipeline:
             'pred_draw_prob': float(p_draw),
             'pred_away_prob': float(p_away),
             'predicted_outcome': predicted_outcome,
-            'bet_outcome': bet_outcome,
-            'bet_probability': float(bet_probability) if bet_probability is not None else None,
-            'bet_odds': float(bet_odds) if bet_odds is not None else None,
-            'should_bet': should_bet,
             **{k: float(v) if isinstance(v, (np.floating, float)) else v for k, v in odds.items()},
             'features': {k: float(v) if isinstance(v, (np.floating, float)) else v for k, v in features.items()},
-            'model_version': 'v5'
+            'model_version': 'v5',
         }
+
+        # Generate market predictions from goals model (if available)
+        market_pred = None
+        if self.goals_model is not None:
+            try:
+                lh, la = self.goals_model.predict_single(X)
+                markets = PoissonGoalsModel.derive_markets(lh, la)
+                market_pred = {
+                    'fixture_id': fixture.get('id'),
+                    'match_date': fixture.get('starting_at'),
+                    'league_id': fixture.get('league_id'),
+                    'home_team_name': home_team.get('name'),
+                    'away_team_name': away_team.get('name'),
+                    **markets,
+                }
+            except Exception as e:
+                logger.warning(f"Goals model failed for fixture {fixture.get('id')}: {e}")
+
+        # Evaluate each strategy independently
+        results = []
+        for strat_name, strat_cfg in self.strategies.items():
+            bet_outcome, bet_probability, bet_odds_val, should_bet = self._evaluate_strategy(
+                strat_name, strat_cfg, p_home, p_draw, p_away, odds, market_full_feats
+            )
+
+            pred = dict(base)
+            pred['strategy'] = strat_name
+            pred['bet_outcome'] = bet_outcome
+            pred['bet_probability'] = float(bet_probability) if bet_probability is not None else None
+            pred['bet_odds'] = float(bet_odds_val) if bet_odds_val is not None else None
+            pred['should_bet'] = should_bet
+            results.append(pred)
+
+        return results, market_pred
+
+    def _evaluate_strategy(self, strat_name: str, strat_cfg: dict,
+                           p_home: float, p_draw: float, p_away: float,
+                           odds: dict, market_full_feats: dict):
+        """Evaluate a single strategy for one fixture.
+
+        Returns:
+            (bet_outcome, bet_probability, bet_odds, should_bet)
+        """
+        has_thresholds = 'thresholds' in strat_cfg
+        has_selector = 'selector' in strat_cfg and strat_name in self.selectors
+
+        # Step 1: Threshold check (if applicable)
+        threshold_candidate = None
+        if has_thresholds:
+            thresholds = strat_cfg['thresholds']
+            candidates = []
+            if p_home >= thresholds.get('home', 1.0):
+                candidates.append(('Home Win', p_home, odds.get('best_home_odds')))
+            if p_away >= thresholds.get('away', 1.0):
+                candidates.append(('Away Win', p_away, odds.get('best_away_odds')))
+            if p_draw >= thresholds.get('draw', 1.0):
+                candidates.append(('Draw', p_draw, odds.get('best_draw_odds')))
+
+            # Apply odds filter if configured
+            odds_filter = strat_cfg.get('odds_filter', {})
+            if odds_filter.get('enabled', False):
+                has_any_odds = any(odd is not None for _, _, odd in candidates)
+                if has_any_odds:
+                    min_odds = odds_filter.get('min', 1.3)
+                    max_odds = odds_filter.get('max', 3.5)
+                    candidates = [(o, p, odd) for o, p, odd in candidates
+                                  if odd and min_odds <= odd <= max_odds]
+
+            if candidates:
+                threshold_candidate = max(candidates, key=lambda x: x[1])
+
+        # Step 2: Apply selector if present
+        if has_selector and has_thresholds:
+            # Hybrid mode: threshold must pass first, then selector decides
+            if threshold_candidate is None:
+                return None, None, None, False
+            if market_full_feats is None:
+                return None, None, None, False
+            if self.selectors[strat_name].predict(market_full_feats):
+                return threshold_candidate[0], threshold_candidate[1], threshold_candidate[2], True
+            return None, None, None, False
+
+        elif has_selector and not has_thresholds:
+            # Pure selector mode: selector decides, bet on highest-prob outcome
+            if market_full_feats is None:
+                return None, None, None, False
+            if self.selectors[strat_name].predict(market_full_feats):
+                prob_map = {'Home Win': (p_home, odds.get('best_home_odds')),
+                            'Away Win': (p_away, odds.get('best_away_odds')),
+                            'Draw': (p_draw, odds.get('best_draw_odds'))}
+                best = max(prob_map, key=lambda k: prob_map[k][0])
+                return best, prob_map[best][0], prob_map[best][1], True
+            return None, None, None, False
+
+        elif has_thresholds:
+            # Pure threshold mode
+            if threshold_candidate:
+                return threshold_candidate[0], threshold_candidate[1], threshold_candidate[2], True
+            return None, None, None, False
+
+        return None, None, None, False
 
 
 def print_backtest_summary(predictions: list, start_date: str, end_date: str):
-    """Print detailed backtest results comparing predictions vs actual."""
-    bets = [p for p in predictions if p['should_bet']]
-    total_matches = len(predictions)
-    total_bets = len(bets)
-
-    if total_bets == 0:
-        logger.info("No bets recommended in this period.")
-        return
-
-    # Calculate weeks
+    """Print detailed backtest results with per-strategy breakdown."""
     from datetime import datetime as dt
     d1 = dt.strptime(start_date, '%Y-%m-%d')
     d2 = dt.strptime(end_date, '%Y-%m-%d')
     weeks = max((d2 - d1).days / 7, 1)
 
-    # Track results per outcome
-    outcome_map = {'Home Win': 'H', 'Away Win': 'A', 'Draw': 'D'}
-    results = {'Home Win': {'bets': 0, 'correct': 0}, 'Away Win': {'bets': 0, 'correct': 0}, 'Draw': {'bets': 0, 'correct': 0}}
+    # Group by strategy
+    by_strategy = {}
+    for p in predictions:
+        strat = p.get('strategy', 'threshold')
+        by_strategy.setdefault(strat, []).append(p)
 
     logger.info("\n" + "=" * 100)
     logger.info("BACKTEST RESULTS")
     logger.info("=" * 100)
     logger.info(f"Period: {start_date} to {end_date} ({weeks:.1f} weeks)")
-    logger.info(f"Total matches: {total_matches} | Bets recommended: {total_bets}")
-    logger.info("")
 
-    # Match-by-match results
-    logger.info(f"{'Date':<12} {'Match':<45} {'Bet':<12} {'Prob':>6} {'Actual':>8} {'Result':>8}")
-    logger.info("-" * 100)
+    outcome_map = {'Home Win': 'H', 'Away Win': 'A', 'Draw': 'D'}
 
-    for pred in sorted(bets, key=lambda x: x['match_date']):
-        bet_outcome = pred['bet_outcome']
-        actual_result = pred.get('actual_result')
+    for strat_name, strat_preds in by_strategy.items():
+        bets = [p for p in strat_preds if p['should_bet']]
+        total_bets = len(bets)
 
-        if bet_outcome and actual_result:
-            expected_code = outcome_map.get(bet_outcome)
-            is_correct = expected_code == actual_result
-            result_str = 'WIN' if is_correct else 'LOSS'
+        logger.info(f"\n--- Strategy: {strat_name} ({total_bets} bets) ---")
 
-            results[bet_outcome]['bets'] += 1
-            if is_correct:
-                results[bet_outcome]['correct'] += 1
-        else:
-            result_str = 'N/A'
+        if total_bets == 0:
+            logger.info("  No bets recommended.")
+            continue
 
-        match_str = f"{pred['home_team_name']} vs {pred['away_team_name']}"
-        if len(match_str) > 43:
-            match_str = match_str[:43]
+        wins, losses, total_profit = 0, 0, 0.0
+        for pred in bets:
+            actual = pred.get('actual_result')
+            bet_code = outcome_map.get(pred['bet_outcome'])
+            if actual and bet_code:
+                if bet_code == actual:
+                    wins += 1
+                    total_profit += (pred['bet_odds'] - 1) if pred['bet_odds'] else 0
+                else:
+                    losses += 1
+                    total_profit -= 1.0
 
-        date_str = str(pred['match_date'])[:10]
-        actual_str = actual_result or '?'
-        prob_str = f"{pred['bet_probability']:.0%}" if pred['bet_probability'] else 'N/A'
+        wr = wins / (wins + losses) * 100 if (wins + losses) > 0 else 0
+        roi = total_profit / (wins + losses) * 100 if (wins + losses) > 0 else 0
 
-        logger.info(f"{date_str:<12} {match_str:<45} {bet_outcome:<12} {prob_str:>6} {actual_str:>8} {result_str:>8}")
+        logger.info(f"  Bets: {wins + losses} | Wins: {wins} | WR: {wr:.1f}% | Profit: ${total_profit:.2f} | ROI: {roi:.1f}%")
 
-    # Summary
-    total_correct = sum(r['correct'] for r in results.values())
-    total_counted = sum(r['bets'] for r in results.values())
-    overall_wr = total_correct / total_counted * 100 if total_counted > 0 else 0
+    logger.info("\n" + "=" * 100)
 
-    logger.info("")
+
+def print_live_summary(predictions: list):
+    """Print multi-strategy bet recommendations."""
+    bets = [p for p in predictions if p['should_bet']]
+    if not bets:
+        logger.info("No bets recommended.")
+        return
+
+    # Group by fixture
+    by_fixture = {}
+    for p in bets:
+        fid = p['fixture_id']
+        by_fixture.setdefault(fid, []).append(p)
+
+    logger.info("\n" + "=" * 100)
+    logger.info("RECOMMENDED BETS (all strategies)")
     logger.info("=" * 100)
-    logger.info("SUMMARY")
-    logger.info("=" * 100)
-    logger.info(f"Total bets:     {total_counted}")
-    logger.info(f"Bets per week:  {total_counted / weeks:.1f}")
-    logger.info(f"Overall WR:     {overall_wr:.1f}% ({total_correct}/{total_counted})")
-    logger.info("")
 
-    for outcome in ['Home Win', 'Away Win', 'Draw']:
-        r = results[outcome]
-        if r['bets'] > 0:
-            wr = r['correct'] / r['bets'] * 100
-            logger.info(f"  {outcome:<10}: {r['bets']:>3} bets, {r['correct']:>3} correct, WR: {wr:.1f}%")
-        else:
-            logger.info(f"  {outcome:<10}:   0 bets")
+    for fid, fixture_bets in sorted(by_fixture.items(), key=lambda x: x[1][0]['match_date']):
+        first = fixture_bets[0]
+        logger.info(f"\n{str(first['match_date'])[:10]}: {first['home_team_name']} vs {first['away_team_name']}")
+        logger.info(f"  Probs: H={first['pred_home_prob']:.1%}, D={first['pred_draw_prob']:.1%}, A={first['pred_away_prob']:.1%}")
 
+        for pred in fixture_bets:
+            odds_str = f"{pred['bet_odds']:.2f}" if pred['bet_odds'] else "N/A"
+            logger.info(f"  [{pred['strategy']:<10}] {pred['bet_outcome']} ({pred['bet_probability']:.1%}) @ {odds_str}")
+
+    # Summary counts
+    logger.info(f"\n--- Summary ---")
+    for strat in sorted(set(p['strategy'] for p in predictions)):
+        strat_bets = [p for p in predictions if p['strategy'] == strat and p['should_bet']]
+        logger.info(f"  {strat}: {len(strat_bets)} bets")
     logger.info("=" * 100)
+
+
+def print_market_summary(market_predictions: list):
+    """Print market predictions (O/U, BTTS, top scoreline) per fixture."""
+    logger.info("\n" + "=" * 100)
+    logger.info("MARKET PREDICTIONS (Goals Model)")
+    logger.info("=" * 100)
+
+    for mp in sorted(market_predictions, key=lambda x: str(x.get('match_date', ''))):
+        date_str = str(mp.get('match_date', ''))[:10]
+        logger.info(f"\n{date_str}: {mp.get('home_team_name')} vs {mp.get('away_team_name')}")
+        logger.info(f"  xG: Home={mp['home_goals_lambda']:.2f}, Away={mp['away_goals_lambda']:.2f}")
+        logger.info(f"  O/U 2.5: {mp['over_2_5_prob']:.1%} over | O/U 1.5: {mp['over_1_5_prob']:.1%} over | O/U 3.5: {mp['over_3_5_prob']:.1%} over")
+        logger.info(f"  BTTS: {mp['btts_prob']:.1%}")
+
+        scorelines = mp.get('top_scorelines', [])
+        if scorelines:
+            sl_str = ', '.join(f"{s['home']}-{s['away']} ({s['prob']:.1%})" for s in scorelines[:3])
+            logger.info(f"  Top scorelines: {sl_str}")
+
+    logger.info("\n" + "=" * 100)
 
 
 def main():
-    parser = argparse.ArgumentParser(description='V5 Live Prediction')
+    parser = argparse.ArgumentParser(description='V5 Live Prediction (multi-strategy)')
     parser.add_argument('--days-ahead', type=int, default=7, help='Days ahead to predict')
     parser.add_argument('--history-days', type=int, default=365, help='Days of history to load')
-    parser.add_argument('--strategy', choices=list(STRATEGY_PROFILES.keys()), help='Betting strategy')
     parser.add_argument('--dry-run', action='store_true', help='Do not save to database')
-    parser.add_argument('--use-selector', action='store_true', help='Use ML bet selector (bypasses thresholds)')
     parser.add_argument('--start-date', help='Backtest start date (YYYY-MM-DD)')
     parser.add_argument('--end-date', help='Backtest end date (YYYY-MM-DD)')
 
@@ -680,21 +774,17 @@ def main():
     # =========================================================================
     if args.start_date and args.end_date:
         logger.info("=" * 80)
-        logger.info("BACKDATED PREDICTION MODE")
+        logger.info("BACKDATED PREDICTION MODE (multi-strategy)")
         logger.info("=" * 80)
 
         reference_date = datetime.strptime(args.start_date, '%Y-%m-%d')
 
-        # Initialize pipeline with reference_date (loads history before start_date)
         pipeline = LivePipeline(
             api_key,
             history_days=args.history_days,
-            strategy=args.strategy,
             reference_date=reference_date,
-            use_selector=args.use_selector
         )
 
-        # Fetch finished fixtures in the backtest window (with odds for PnL)
         logger.info(f"\nFetching finished fixtures from {args.start_date} to {args.end_date}...")
         backtest_fixtures = pipeline.client.get_fixtures_between(
             args.start_date, args.end_date,
@@ -703,22 +793,21 @@ def main():
             include_odds=True
         )
 
-        # Filter to top 5 leagues if configured
         if FILTER_TOP_5_ONLY:
             backtest_fixtures = [f for f in backtest_fixtures if f.get('league_id') in TOP_5_LEAGUES]
 
         logger.info(f"Found {len(backtest_fixtures)} finished fixtures in top 5 leagues")
 
-        # Generate predictions and compare with actuals
+        # Generate predictions (returns list of lists → flatten)
         predictions = []
+        market_predictions = []
         for fixture in backtest_fixtures:
             try:
-                pred = pipeline.predict(fixture)
-                if pred is None:
+                preds, market_pred = pipeline.predict(fixture)
+                if not preds:
                     continue
 
                 # Add actual result from finished fixture
-                participants = fixture.get('participants', [])
                 scores = fixture.get('scores', [])
                 home_score, away_score = None, None
                 for score in scores:
@@ -731,65 +820,67 @@ def main():
 
                 if home_score is not None and away_score is not None:
                     actual = 'H' if home_score > away_score else ('A' if home_score < away_score else 'D')
-                    pred['actual_result'] = actual
-                    pred['actual_home_score'] = home_score
-                    pred['actual_away_score'] = away_score
+                    for p in preds:
+                        p['actual_result'] = actual
+                        p['actual_home_score'] = home_score
+                        p['actual_away_score'] = away_score
+                    if market_pred:
+                        market_pred['actual_home_score'] = home_score
+                        market_pred['actual_away_score'] = away_score
 
-                predictions.append(pred)
+                predictions.extend(preds)
+                if market_pred:
+                    market_predictions.append(market_pred)
             except Exception as e:
                 logger.warning(f"Failed to predict fixture {fixture.get('id')}: {e}")
 
-        # Print backtest summary
         print_backtest_summary(predictions, args.start_date, args.end_date)
 
-        # Optionally save to database
         if not args.dry_run and predictions:
             logger.info("\nSaving to database...")
             db = DatabaseClient(DATABASE_URL)
             db.create_tables()
             count = db.store_predictions_batch(predictions)
             logger.info(f"Saved {count} predictions")
+            if market_predictions:
+                mkt_count = db.store_market_predictions_batch(market_predictions)
+                logger.info(f"Saved {mkt_count} market predictions")
 
         return
 
     # =========================================================================
-    # LIVE MODE (existing behavior)
+    # LIVE MODE
     # =========================================================================
-    pipeline = LivePipeline(api_key, history_days=args.history_days, strategy=args.strategy, use_selector=args.use_selector)
+    pipeline = LivePipeline(api_key, history_days=args.history_days)
 
-    # Fetch upcoming fixtures
     logger.info(f"\nFetching fixtures for next {args.days_ahead} days...")
     league_filter = TOP_5_LEAGUES if FILTER_TOP_5_ONLY else None
     fixtures = pipeline.client.get_upcoming_fixtures(days_ahead=args.days_ahead, league_ids=league_filter)
     logger.info(f"Found {len(fixtures)} upcoming fixtures")
 
-    # Generate predictions
+    # Generate predictions (list of lists → flatten)
     predictions = []
+    market_predictions = []
     for fixture in fixtures:
         try:
-            pred = pipeline.predict(fixture)
-            if pred:
-                predictions.append(pred)
+            preds, market_pred = pipeline.predict(fixture)
+            predictions.extend(preds)
+            if market_pred:
+                market_predictions.append(market_pred)
         except Exception as e:
             logger.warning(f"Failed to predict fixture {fixture.get('id')}: {e}")
 
-    logger.info(f"\nGenerated {len(predictions)} predictions")
+    n_fixtures = len(set(p['fixture_id'] for p in predictions))
+    logger.info(f"\nGenerated {len(predictions)} predictions across {n_fixtures} fixtures")
 
-    # Filter to bets
     bets = [p for p in predictions if p['should_bet']]
     logger.info(f"Recommended bets: {len(bets)}")
+    if market_predictions:
+        logger.info(f"Market predictions: {len(market_predictions)} fixtures")
 
-    # Display predictions
-    if bets:
-        logger.info("\n" + "=" * 80)
-        logger.info("RECOMMENDED BETS")
-        logger.info("=" * 80)
-
-        for pred in sorted(bets, key=lambda x: x['match_date']):
-            logger.info(f"\n{pred['match_date'][:10]}: {pred['home_team_name']} vs {pred['away_team_name']}")
-            logger.info(f"  Prediction: {pred['bet_outcome']} ({pred['bet_probability']:.1%})")
-            logger.info(f"  Odds: {pred['bet_odds']:.2f}" if pred['bet_odds'] else "  Odds: N/A")
-            logger.info(f"  Probs: H={pred['pred_home_prob']:.1%}, D={pred['pred_draw_prob']:.1%}, A={pred['pred_away_prob']:.1%}")
+    print_live_summary(predictions)
+    if market_predictions:
+        print_market_summary(market_predictions)
 
     # Save to database
     if not args.dry_run and predictions:
@@ -798,6 +889,9 @@ def main():
         db.create_tables()
         count = db.store_predictions_batch(predictions)
         logger.info(f"Saved {count} predictions")
+        if market_predictions:
+            mkt_count = db.store_market_predictions_batch(market_predictions)
+            logger.info(f"Saved {mkt_count} market predictions")
     elif args.dry_run:
         logger.info("\nDry run - not saving to database")
 
